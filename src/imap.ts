@@ -27,6 +27,10 @@ export interface ImapClient {
 	fetchAll(range: string, query: { uid: true; source: true }): Promise<{ uid: number; source?: Buffer }[]>;
 	fetchOne(seq: string, query: { uid: true; source: true }, options: { uid: true }): Promise<{ uid: number; source?: Buffer } | false | undefined>;
 	logout(): Promise<void>;
+	/** Drop the socket without waiting for a server goodbye. */
+	close?(): void;
+	/** A connection that dies between commands reports it here, not through a pending call. */
+	on?(event: "error", listener: (error: Error) => void): void;
 }
 
 export interface ImapOptions {
@@ -75,6 +79,12 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 				secure: true,
 				auth: { user, pass: password },
 				logger: false,
+				// A poller cannot wait out the defaults: a dead socket takes five minutes to notice,
+				// and until it does the account's pass lock is held and every other poll skips the
+				// mailbox. One minute is twice the poll interval and long enough for a real fetch.
+				socketTimeout: 60_000,
+				connectionTimeout: 30_000,
+				greetingTimeout: 15_000,
 			}) as unknown as ImapClient);
 
 	async function connected(): Promise<ImapClient> {
@@ -82,6 +92,17 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 		const fresh = doConnect(options);
 		await fresh.connect();
 		client = fresh;
+		// A connection can die while no command is in flight, and that surfaces as an event. Without
+		// a listener the process would take the error as uncaught; without dropping the client the
+		// next pass would reuse a dead socket and stall again.
+		fresh.on?.("error", () => {
+			if (client === fresh) client = undefined;
+			try {
+				fresh.close?.();
+			} catch {
+				// Already closed by the failure.
+			}
+		});
 		return fresh;
 	}
 
@@ -95,7 +116,13 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 			// would fail every later pass until the process restarted. Drop it so the next pass
 			// reconnects, and let the caller see what happened.
 			if (client === imap) client = undefined;
-			void imap.logout().catch(() => {});
+			try {
+				// A broken socket cannot wait for a server goodbye; drop it now.
+				if (imap.close) imap.close();
+				else void imap.logout().catch(() => {});
+			} catch {
+				// The connection is already gone.
+			}
 			throw error;
 		} finally {
 			try {

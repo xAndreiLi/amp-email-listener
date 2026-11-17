@@ -41631,7 +41631,10 @@ function imapSource(account, options) {
     port: port ?? 993,
     secure: true,
     auth: { user, pass: password },
-    logger: false
+    logger: false,
+    socketTimeout: 60000,
+    connectionTimeout: 30000,
+    greetingTimeout: 15000
   }));
   async function connected() {
     if (client)
@@ -41639,6 +41642,13 @@ function imapSource(account, options) {
     const fresh = doConnect(options);
     await fresh.connect();
     client = fresh;
+    fresh.on?.("error", () => {
+      if (client === fresh)
+        client = undefined;
+      try {
+        fresh.close?.();
+      } catch {}
+    });
     return fresh;
   }
   async function withMailbox(work) {
@@ -41649,7 +41659,12 @@ function imapSource(account, options) {
     } catch (error) {
       if (client === imap)
         client = undefined;
-      imap.logout().catch(() => {});
+      try {
+        if (imap.close)
+          imap.close();
+        else
+          imap.logout().catch(() => {});
+      } catch {}
       throw error;
     } finally {
       try {
@@ -42027,7 +42042,7 @@ function accountDir(account) {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
-var ACCOUNT_LOCK_STALE_MS = 5 * 60 * 1000;
+var ACCOUNT_LOCK_STALE_MS = 2 * 60 * 1000;
 async function withAccountLock(account, work) {
   const file = join3(accountDir(account), "account.lock");
   let handle;

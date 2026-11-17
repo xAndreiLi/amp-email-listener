@@ -54,8 +54,11 @@ export function accountDir(account: string): string {
 	return dir;
 }
 
-/** A stale holder is assumed dead; five minutes is longer than any delivery should take. */
-const ACCOUNT_LOCK_STALE_MS = 5 * 60 * 1000;
+/**
+ * A stale holder is assumed dead. A pass that is still running after two minutes is stuck: the IMAP
+ * socket gives up after one, so anything older than this is a lock a crashed process left behind.
+ */
+const ACCOUNT_LOCK_STALE_MS = 2 * 60 * 1000;
 
 /**
  * Serialize a whole account pass across every Amp thread that loaded the plugin. Without this, two

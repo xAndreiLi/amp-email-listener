@@ -45,11 +45,16 @@ const raw = (subject: string, from = "Dana Whitfield <dana@example.com>", extra:
 function stubServer(messages: { uid: number; source: string }[], uidValidity = 7n) {
 	const calls: string[] = [];
 	let loggedOut = false;
+	const errorListeners: ((error: Error) => void)[] = [];
 	const client = {
 		failNext: 0,
 		mailbox: { uidValidity, exists: messages.length },
 		async connect() {
 			calls.push("connect");
+		},
+		on(event: string, listener: (error: Error) => void) {
+			calls.push(`on:${event}`);
+			if (event === "error") errorListeners.push(listener);
 		},
 		async getMailboxLock(path: string) {
 			calls.push(`lock:${path}`);
@@ -91,7 +96,7 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 			throw new Error("the source must never delete a message");
 		},
 	};
-	return { client, calls, loggedOut: () => loggedOut };
+	return { client, calls, loggedOut: () => loggedOut, emitError: (error: Error) => errorListeners.forEach((listener) => listener(error)) };
 }
 
 const account = { name: "agent", provider: "imap", host: "imap.example.com", user: "agent@example.com" };
@@ -188,6 +193,23 @@ check("a dropped connection surfaces as an error rather than silence", surfaced)
 check("the dead client is dropped", flaky.calls.filter((call) => call === "connect").length === 1);
 check("and the next pass connects again", (await syncAccount({ ...account, name: "flaky" }, flakySource)) === 1);
 check("which is the second connect", flaky.calls.filter((call) => call === "connect").length === 2);
+
+// ---------------------------------------------------------------- a connection that dies between passes
+
+// A socket can fail while no command is in flight, and that arrives as an event. It must not crash
+// the process, and the dead client must not be handed to the next pass.
+const died = stubServer([{ uid: 1, source: raw("After an idle drop") }]);
+const diedSource = imapSource("died", {
+	host: "imap.example.com",
+	user: "agent@example.com",
+	password: "app-password",
+	connect: () => died.client as never,
+});
+check("a first pass stores the message", (await syncAccount({ ...account, name: "died" }, diedSource)) === 1);
+check("and listens for a connection that dies while idle", died.calls.includes("on:error"));
+died.emitError(new Error("socket closed"));
+check("the next pass stores nothing new", (await syncAccount({ ...account, name: "died" }, diedSource)) === 0);
+check("and it reconnects instead of reusing the dead socket", died.calls.filter((call) => call === "connect").length === 2);
 
 await source.close();
 check("closing the source logs out", first.loggedOut());
