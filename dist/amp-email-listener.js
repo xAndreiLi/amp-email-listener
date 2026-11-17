@@ -42227,8 +42227,10 @@ function sourceFor(account) {
 }
 async function syncAccount(account, source = sourceFor(account), log = defaultLog) {
   accountDir(account.name);
-  const known = new Set(readIndex(account.name).map((message) => message.id));
-  const { envelopes, cursor } = await source.listNew(readCursor(account.name));
+  const index = readIndex(account.name);
+  const known = new Set(index.map((message) => message.id));
+  const cursor = repairedCursor(account.name, index, readCursor(account.name), log);
+  const { envelopes, cursor: next } = await source.listNew(cursor);
   let stored = 0;
   for (const envelope of envelopes) {
     if (known.has(envelope.id))
@@ -42239,9 +42241,20 @@ async function syncAccount(account, source = sourceFor(account), log = defaultLo
     stored++;
     log(`[${account.name}] stored ${message.receivedAt} \xB7 ${message.from.address} \xB7 ${message.subject || "(no subject)"} \u2192 ${message.file}`);
   }
-  if (Object.keys(cursor).length > 0)
-    writeCursor(account.name, cursor);
+  if (Object.keys(next).length > 0)
+    writeCursor(account.name, next);
   return stored;
+}
+function repairedCursor(account, index, cursor, log) {
+  if (!cursor || typeof cursor.lastUid !== "number")
+    return cursor;
+  const highestStored = index.reduce((highest, message) => {
+    return /^\d+$/.test(message.id) ? Math.max(highest, Number(message.id)) : highest;
+  }, 0);
+  if (cursor.lastUid <= highestStored)
+    return cursor;
+  log(`[${account}] cursor ${cursor.lastUid} is ahead of the spool ${highestStored}; rewinding`);
+  return { ...cursor, lastUid: highestStored };
 }
 function safeName(id2) {
   const cleaned = id2.replace(/[^A-Za-z0-9._-]/g, "-").replace(/\.eml$/i, "");

@@ -118,6 +118,20 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 
 const account = { name: "agent", provider: "imap", host: "imap.example.com", user: "agent@example.com" };
 
+/** Give an account a real stored UID 1 and a cursor at 1, so a test starts from a resumable state. */
+async function seed(name: string) {
+	const seedServer = stubServer([{ uid: 1, source: raw("Seed") }]);
+	await syncAccount(
+		{ ...account, name },
+		imapSource(name, {
+			host: "imap.example.com",
+			user: "agent@example.com",
+			password: "app-password",
+			connect: () => seedServer.client as never,
+		}),
+	);
+}
+
 // ---------------------------------------------------------------- first pass
 
 const first = stubServer([
@@ -185,7 +199,7 @@ const gapSource = imapSource("gap", {
 	password: "app-password",
 	connect: () => gap.client as never,
 });
-writeCursor("gap", { uidValidity: "7", lastUid: 1 });
+await seed("gap");
 gap.hide(2);
 check("a uid the server will not hand over stores nothing", (await syncAccount({ ...account, name: "gap" }, gapSource)) === 0);
 check("and the cursor stays before it", readCursor("gap")?.lastUid === 1);
@@ -213,7 +227,7 @@ const retrySource = imapSource("retry", {
 	password: "app-password",
 	connect: () => (connects++ === 0 ? emptyFirst.client : emptySecond.client) as never,
 });
-writeCursor("retry", { uidValidity: "7", lastUid: 1 });
+await seed("retry");
 check("a UID that is listed but not handed over is retried on a fresh connection", (await syncAccount({ ...account, name: "retry" }, retrySource)) === 1);
 check("which took two connections", connects === 2);
 check("and the dead connection was logged out", emptyFirst.loggedOut());
@@ -239,10 +253,38 @@ const blindSource = imapSource("blind", {
 	password: "app-password",
 	connect: () => (blindConnects++ === 0 ? blindFirst.client : blindSecond.client) as never,
 });
-writeCursor("blind", { uidValidity: "7", lastUid: 1 });
+await seed("blind");
 check("a search that sees nothing while the mailbox reports more is retried", (await syncAccount({ ...account, name: "blind" }, blindSource)) === 1);
 check("which took two connections", blindConnects === 2);
 check("and the cursor moves once the message is stored", readCursor("blind")?.lastUid === 2);
+
+// ---------------------------------------------------------------- a cursor ahead of the spool
+
+// An older instance can move the cursor past a message it never stored. The index is the truth,
+// so the next pass rewinds and fetches the skipped UID again.
+const rewindFirst = stubServer([{ uid: 1, source: raw("Stored before the skip") }]);
+const rewindFirstSource = imapSource("rewind", {
+	host: "imap.example.com",
+	user: "agent@example.com",
+	password: "app-password",
+	connect: () => rewindFirst.client as never,
+});
+await syncAccount({ ...account, name: "rewind" }, rewindFirstSource);
+writeCursor("rewind", { uidValidity: "7", lastUid: 3 });
+const rewindSecond = stubServer([
+	{ uid: 1, source: raw("Stored before the skip") },
+	{ uid: 2, source: raw("Skipped two") },
+	{ uid: 3, source: raw("Skipped three") },
+]);
+const rewindSecondSource = imapSource("rewind", {
+	host: "imap.example.com",
+	user: "agent@example.com",
+	password: "app-password",
+	connect: () => rewindSecond.client as never,
+});
+check("a cursor ahead of the spool is rewound", (await syncAccount({ ...account, name: "rewind" }, rewindSecondSource)) === 2);
+check("and the skipped messages are stored", readIndex("rewind").length === 3);
+check("and the cursor ends at the newest stored message", readCursor("rewind")?.lastUid === 3);
 
 // ---------------------------------------------------------------- reading a forwarded message
 

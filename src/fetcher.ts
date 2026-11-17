@@ -9,7 +9,7 @@ import { graphSource } from "./graph.ts";
 import { imapSource } from "./imap.ts";
 import { accessTokenFor } from "./microsoft-auth.ts";
 import { type MailSource, fixtureSource } from "./source.ts";
-import { accountDir, readCursor, readIndex, storeMessage, writeCursor } from "./spool.ts";
+import { accountDir, readCursor, readIndex, type StoredMessage, storeMessage, writeCursor } from "./spool.ts";
 
 const defaultLog = (line: string) => process.stdout.write(`${new Date().toISOString()} ${line}\n`);
 
@@ -61,8 +61,10 @@ export async function syncAccount(
 	log = defaultLog,
 ): Promise<number> {
 	accountDir(account.name);
-	const known = new Set(readIndex(account.name).map((message) => message.id));
-	const { envelopes, cursor } = await source.listNew(readCursor(account.name));
+	const index = readIndex(account.name);
+	const known = new Set(index.map((message) => message.id));
+	const cursor = repairedCursor(account.name, index, readCursor(account.name), log);
+	const { envelopes, cursor: next } = await source.listNew(cursor);
 	let stored = 0;
 	for (const envelope of envelopes) {
 		if (known.has(envelope.id)) continue;
@@ -80,8 +82,29 @@ export async function syncAccount(
 	}
 	// The cursor is the adapter's, so it is stored whatever shape it is in — including a cursor
 	// that only moved because a page was consumed.
-	if (Object.keys(cursor).length > 0) writeCursor(account.name, cursor);
+	if (Object.keys(next).length > 0) writeCursor(account.name, next);
 	return stored;
+}
+
+/**
+ * A cursor can end up ahead of the spool when another plugin instance advanced it without storing
+ * the message — an older build, or a crash between the fetch and the write. The index is the truth,
+ * so the cursor is rewound to the highest message actually stored and the skipped UIDs are fetched
+ * again. Only the IMAP cursor carries `lastUid`; other providers are left alone.
+ */
+function repairedCursor(
+	account: string,
+	index: StoredMessage[],
+	cursor: Cursor | undefined,
+	log: (line: string) => void,
+): Cursor | undefined {
+	if (!cursor || typeof cursor.lastUid !== "number") return cursor;
+	const highestStored = index.reduce((highest, message) => {
+		return /^\d+$/.test(message.id) ? Math.max(highest, Number(message.id)) : highest;
+	}, 0);
+	if (cursor.lastUid <= highestStored) return cursor;
+	log(`[${account}] cursor ${cursor.lastUid} is ahead of the spool ${highestStored}; rewinding`);
+	return { ...cursor, lastUid: highestStored };
 }
 
 /** The id is a provider's, so it has to become a file name without colliding or carrying a path. */
