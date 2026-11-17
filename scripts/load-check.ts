@@ -320,10 +320,10 @@ const mailboxCtx = {
 	...ctx,
 	ui: {
 		...ctx.ui,
-		select: async (title: string, options: string[]) => {
-			if (title === "Configure a mailbox") return "test (active)";
-			if (title.startsWith("Manage ")) {
-				deactivateOptions = options;
+		select: async (request: { title: string; options: string[] }) => {
+			if (request.title === "Configure a mailbox") return "test (active)";
+			if (request.title.startsWith("Manage ")) {
+				deactivateOptions = request.options;
 				return "Deactivate";
 			}
 			return undefined;
@@ -356,10 +356,10 @@ const activateCtx = {
 	...ctx,
 	ui: {
 		...ctx.ui,
-		select: async (title: string, options: string[]) => {
-			if (title === "Configure a mailbox") return "test (deactivated)";
-			if (title.startsWith("Manage ")) {
-				activateOptions = options;
+		select: async (request: { title: string; options: string[] }) => {
+			if (request.title === "Configure a mailbox") return "test (deactivated)";
+			if (request.title.startsWith("Manage ")) {
+				activateOptions = request.options;
 				return "Activate";
 			}
 			return undefined;
@@ -380,8 +380,12 @@ const removeCtx = {
 	...ctx,
 	ui: {
 		...ctx.ui,
-		select: async (title: string) =>
-			title === "Configure a mailbox" ? "test (active)" : title.startsWith("Manage ") ? "Remove" : undefined,
+		select: async (request: { title: string }) =>
+			request.title === "Configure a mailbox"
+				? "test (active)"
+				: request.title.startsWith("Manage ")
+					? "Remove"
+					: undefined,
 		confirm: async () => true,
 	},
 };

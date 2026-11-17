@@ -42525,10 +42525,10 @@ function pi_email_listener_default(amp) {
     description: "Choose whether new mail wakes this thread or starts a new thread for each email."
   }, async (ctx) => {
     const notify = (message) => void ctx.ui.notify(message);
-    const choice = await ctx.ui.select("Where should new mail go?", [
-      "This thread",
-      "A new thread for each email"
-    ]);
+    const choice = await ctx.ui.select({
+      title: "Where should new mail go?",
+      options: ["This thread", "A new thread for each email"]
+    });
     if (!choice)
       return;
     try {
@@ -42584,14 +42584,20 @@ function pi_email_listener_default(amp) {
       accounts
     }));
     const label = (mailbox2) => `${mailbox2.address} (${mailboxStatus(mailbox2)})`;
-    const selected = await ctx.ui.select("Configure a mailbox", mailboxes.map(label));
+    const selected = await ctx.ui.select({
+      title: "Configure a mailbox",
+      options: mailboxes.map(label)
+    });
     if (!selected)
       return;
     const mailbox = mailboxes.find((candidate) => label(candidate) === selected);
     if (!mailbox)
       return;
     const status2 = mailboxStatus(mailbox);
-    const action = await ctx.ui.select(`Manage ${mailbox.address} (${status2})`, status2 === "deactivated" ? ["Activate", "Remove", "Cancel"] : ["Deactivate", "Remove", "Cancel"]);
+    const action = await ctx.ui.select({
+      title: `Manage ${mailbox.address} (${status2})`,
+      options: status2 === "deactivated" ? ["Activate", "Remove", "Cancel"] : ["Deactivate", "Remove", "Cancel"]
+    });
     if (!action || action === "Cancel")
       return;
     try {
@@ -42609,7 +42615,10 @@ function pi_email_listener_default(amp) {
         return;
       }
       if (action === "Remove") {
-        const confirmed = await ctx.ui.confirm(`Remove ${mailbox.address}?`, "This removes the saved mailbox from the config. Messages already stored on disk stay there.");
+        const confirmed = await ctx.ui.confirm({
+          title: `Remove ${mailbox.address}?`,
+          message: "This removes the saved mailbox from the config. Messages already stored on disk stay there."
+        });
         if (!confirmed)
           return;
         removeAccounts(mailbox.accounts.map((account) => account.name));
