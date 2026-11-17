@@ -19,17 +19,17 @@ They are not equally easy to satisfy, and §5 shows where they fight each other.
 
 | Piece | State | What proves it |
 |---|---|---|
-| Spool: raw `.eml` + append-only index + per-account cursor, under `<agent dir>/mail/<account>/` | Built | 17 checks, and real files on disk from live runs |
-| Fetcher: one pass per account, dedup, provider-owned cursor, one broken account does not stop others | Built | Runs from a plain node process with no pi (verified) |
+| Spool: raw `.eml` + append-only index + per-account cursor, under `<Amp config dir>/mail/<account>/` | Built | 17 checks, and real files on disk from live runs |
+| Fetcher: one pass per account, dedup, provider-owned cursor, one broken account does not stop others | Built | Runs from a plain node process with no agent host (verified) |
 | **IMAP source** — a mailbox the agent owns | Built | 21 checks against a stubbed server, including a `uidValidity` rebuild and a dropped connection |
 | Graph source — read a Microsoft mailbox directly | Built | 12 checks against a stubbed Graph; **never run against Microsoft** (no tenant exists) |
 | Microsoft sign-in (device code) | Built | 16 checks against a stubbed identity platform; reached the live endpoint once, with a placeholder client id |
-| Wake: every message turns the agent, pointer not digest, quarantine on links and attachments | Built | 24 checks, and **proven live**: agent settled at 3.6s, message spooled at 13.1s, turn started with no prompt at 13.4s |
-| `/email-watch` (per-session, opt-in), `/email-service` (start/stop/status), `/email-setup` (wizard) | Built | 18 checks on the wizard conversation, 10 on a real detached service process |
+| Wake: every message wakes the agent, pointer not digest, quarantine on links and attachments | Built | 35 checks against a stub Amp host, and the same harness under Bun; a real Amp session is still to prove |
+| `/email.watch` (toggle), `/email.service` + `.start`/`.stop`/`.restart`, `/email.setup` (wizard) | Built | 18 checks on the wizard conversation, 10 on a real detached service process |
 | Detached always-on service | Built | Started, fetched, logged, stopped — one process only |
 | **A real mailbox** | **Never done** | Everything above is either stubbed or fixture mail |
 
-**121 checks across seven suites, all offline.** The missing step is the one thing no test can
+**Seven offline suites, all green.** The missing step is the one thing no test can
 substitute for: a real address, a real password, a real message.
 
 ### The decisions that constrain everything downstream

@@ -16,13 +16,20 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # The spool and fetcher, the extension against a stub pi API, and the Graph source against a
-      # stubbed Graph. All offline. `npm run live` is deliberately not here: it spawns a real pi
-      # session and spends a model call, so it is run by hand.
+      # The spool and fetcher, the Amp plugin against a stub host, and the Graph source against a
+      # stubbed Graph. All offline. Loading the plugin in a real Amp session is done by hand.
       - name: Checks
         run: npm run test:all
+      # Amp executes plugins with Bun, so the same stub harness and the Node handoff run there too.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Amp runtime checks
+        run: |
+          bun run scripts/load-check.ts
+          bun run scripts/service-check.ts
       # The checkout tested above is not the layout users get: only an installed package sits under
-      # node_modules, where Node will not strip types and pi is not resolvable. This packs the
+      # node_modules, where Node will not strip types and the Amp host is not present. This packs the
       # tarball, installs it into a throwaway project and drives that copy.
       - name: Installed-copy check
         run: npm run install-check

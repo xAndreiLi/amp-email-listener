@@ -1,7 +1,7 @@
 /**
  * The spool: the only interface between a mailbox and anything that reads mail.
  *
- * Per account, under the pi agent directory:
+ * Per account, under Amp's config directory:
  *
  *   <mail dir>/<account>/index.jsonl    append-only, one StoredMessage per line
  *   <mail dir>/<account>/<file>         the message exactly as it arrived
@@ -12,7 +12,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { agentDir } from "./config.ts";
+import { ampDir } from "./config.ts";
 import type { Cursor } from "./source.ts";
 
 export interface Address {
@@ -35,7 +35,7 @@ export interface StoredMessage {
 }
 
 export function mailRoot(): string {
-	return process.env.PI_EMAIL_LISTENER_MAIL_DIR ?? join(agentDir(), "mail");
+	return process.env.AMP_EMAIL_LISTENER_MAIL_DIR ?? join(ampDir(), "mail");
 }
 
 export function accountDir(account: string): string {

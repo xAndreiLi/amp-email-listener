@@ -1,6 +1,6 @@
 /**
- * Accounts live in a JSON file in the pi agent directory, because a mailbox belongs to the
- * machine and not to any one project. Tests move both this file and the spool with env vars.
+ * Accounts live in a JSON file in Amp's config directory, because a mailbox belongs to the machine
+ * and not to any one project. Tests move both this file and the spool with env vars.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -39,20 +39,17 @@ export interface Config {
 }
 
 /**
- * pi's agent directory, worked out the way pi does without importing pi: the detached fetcher runs
- * in plain node, where pi's packages are not installed. Inside pi the extension sets the config and
- * mail paths from pi itself, so this only decides for a checkout run by hand.
+ * Amp's config directory, worked out without importing the plugin host: the detached fetcher runs
+ * in plain Node, where Amp's packages are not installed. Amp uses `$XDG_CONFIG_HOME/amp` when that
+ * variable is set, and `~/.config/amp` otherwise (including on Windows).
  */
-export function agentDir(): string {
-	const configured = process.env.PI_CODING_AGENT_DIR;
-	if (!configured) return join(homedir(), ".pi", "agent");
-	if (configured === "~") return homedir();
-	const tilde = configured.startsWith("~/") || (process.platform === "win32" && configured.startsWith("~\\"));
-	return tilde ? join(homedir(), configured.slice(2)) : configured;
+export function ampDir(): string {
+	const xdg = process.env.XDG_CONFIG_HOME;
+	return xdg ? join(xdg, "amp") : join(homedir(), ".config", "amp");
 }
 
 export function configPath(): string {
-	return process.env.PI_EMAIL_LISTENER_CONFIG ?? join(agentDir(), "pi-email-listener.json");
+	return process.env.AMP_EMAIL_LISTENER_CONFIG ?? join(ampDir(), "amp-email-listener.json");
 }
 
 export function loadConfig(path = configPath()): Config {

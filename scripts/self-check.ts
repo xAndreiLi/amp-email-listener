@@ -8,19 +8,18 @@
  */
 
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = mkdtempSync(join(tmpdir(), "pi-email-listener-"));
-process.env.PI_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
+const root = mkdtempSync(join(tmpdir(), "amp-email-listener-"));
+process.env.AMP_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
 const maildir = join(root, "fixtures");
 mkdirSync(maildir);
 
 const { syncAccount } = await import("../src/fetcher.ts");
-const { accountDir, readCursor, readIndex } = await import("../src/spool.ts");
-
-const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
+const { accountDir, mailRoot, readCursor, readIndex } = await import("../src/spool.ts");
+const { ampDir, configPath } = await import("../src/config.ts");
 
 let failures = 0;
 function check(what: string, ok: boolean) {
@@ -49,26 +48,40 @@ write("a.eml", [
 ]);
 
 check("config points at the fixture directory", account.dir === maildir);
-check("the spool defaults under the agent directory", getAgentDir().endsWith(join(".pi", "agent")));
 
-// The detached fetcher works out the agent directory without pi; it has to land where pi does.
-const { agentDir } = await import("../src/config.ts");
-const piDirBefore = process.env.PI_CODING_AGENT_DIR;
-delete process.env.PI_CODING_AGENT_DIR;
-check("the agent directory matches pi's by default", agentDir() === getAgentDir());
-process.env.PI_CODING_AGENT_DIR = "~/elsewhere/agent";
-check("and when PI_CODING_AGENT_DIR starts with ~", agentDir() === getAgentDir());
-process.env.PI_CODING_AGENT_DIR = join(root, "agent");
-check("and when it is a plain path", agentDir() === getAgentDir());
-if (piDirBefore === undefined) delete process.env.PI_CODING_AGENT_DIR;
-else process.env.PI_CODING_AGENT_DIR = piDirBefore;
+const xdgBefore = process.env.XDG_CONFIG_HOME;
+delete process.env.XDG_CONFIG_HOME;
+check("Amp's config directory is ~/.config/amp by default", ampDir() === join(homedir(), ".config", "amp"));
+process.env.XDG_CONFIG_HOME = join(root, "xdg");
+check("and follows XDG_CONFIG_HOME", ampDir() === join(root, "xdg", "amp"));
+if (xdgBefore === undefined) delete process.env.XDG_CONFIG_HOME;
+else process.env.XDG_CONFIG_HOME = xdgBefore;
 
-// pi is only there for the extension; an installed fetcher cannot resolve it (see the npm-install gotcha).
+const configBefore = process.env.AMP_EMAIL_LISTENER_CONFIG;
+delete process.env.AMP_EMAIL_LISTENER_CONFIG;
+check("the config file sits in Amp's config directory", configPath() === join(ampDir(), "amp-email-listener.json"));
+process.env.AMP_EMAIL_LISTENER_CONFIG = join(root, "custom.json");
+check("an explicit config path wins", configPath() === join(root, "custom.json"));
+if (configBefore === undefined) delete process.env.AMP_EMAIL_LISTENER_CONFIG;
+else process.env.AMP_EMAIL_LISTENER_CONFIG = configBefore;
+
+const mailBefore = process.env.AMP_EMAIL_LISTENER_MAIL_DIR;
+delete process.env.AMP_EMAIL_LISTENER_MAIL_DIR;
+check("the spool defaults under Amp's config directory", mailRoot() === join(ampDir(), "mail"));
+process.env.AMP_EMAIL_LISTENER_MAIL_DIR = mailBefore;
+
+// Only the plugin entry talks to the host, and only for types; the fetcher must run without it.
 const srcDir = fileURLToPath(new URL("../src/", import.meta.url));
-const importsPi = readdirSync(srcDir)
-	.filter((file) => /\.(ts|mjs)$/.test(file) && file !== "extension.ts")
-	.filter((file) => /^import\s+(?!type\b)[^;]*from\s+"@earendil-works\//m.test(readFileSync(join(srcDir, file), "utf8")));
-check("nothing the fetcher loads imports pi at runtime", importsPi.length === 0);
+const pluginEntry = fileURLToPath(new URL("../index.ts", import.meta.url));
+const runtimeFiles = [pluginEntry, ...readdirSync(srcDir).filter((file) => /\.(ts|mjs)$/.test(file)).map((file) => join(srcDir, file))];
+const importsHost = runtimeFiles.filter((file) =>
+	/^import\s+(?!type\b)[^;]*from\s+"(?:@earendil-works\/|@ampcode\/plugin)/m.test(readFileSync(file, "utf8")),
+);
+check("nothing imports a plugin host at runtime", importsHost.length === 0);
+check(
+	"the package no longer declares a pi extension",
+	!("pi" in (JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as object)),
+);
 
 check("a first pass stores the message", (await syncAccount(account)) === 1);
 check("a second pass stores nothing", (await syncAccount(account)) === 0);

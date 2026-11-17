@@ -12,9 +12,9 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const root = mkdtempSync(join(tmpdir(), "pi-email-listener-graph-"));
+const root = mkdtempSync(join(tmpdir(), "amp-email-listener-graph-"));
 mkdirSync(join(root, "mail"), { recursive: true });
-process.env.PI_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
+process.env.AMP_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
 
 const { graphSource } = await import("../src/graph.ts");
 const { syncAccount } = await import("../src/fetcher.ts");

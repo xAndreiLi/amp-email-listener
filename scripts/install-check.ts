@@ -1,9 +1,9 @@
 /**
- * Publish-shape check: pack the tarball, install it into a throwaway project that has no pi peer,
+ * Publish-shape check: pack the tarball, install it into a throwaway project that has no Amp host,
  * and run the installed fetcher over a fixture mailbox.
  *
  * A checkout test cannot see this shape. Only an installed copy sits under node_modules, where
- * Node refuses to strip TypeScript and pi's packages are not resolvable — the two things that once
+ * Node refuses to strip TypeScript and Amp's packages are not resolvable — the two things that once
  * stopped an npm-installed fetcher from starting. Run it before a tag publishes:
  *
  *   npm run install-check
@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
-const root = mkdtempSync(join(tmpdir(), "pi-email-listener-install-"));
+const root = mkdtempSync(join(tmpdir(), "amp-email-listener-install-"));
 const packageName = (JSON.parse(readFileSync(join(repo, "package.json"), "utf8")) as { name: string }).name;
 
 let failures = 0;
@@ -53,8 +53,8 @@ try {
 	const tarball = npm(["pack", repo, "--silent"], packDir).trim().split(/\r?\n/).at(-1) ?? "";
 	check("npm pack writes a tarball", tarball.endsWith(".tgz") && existsSync(join(packDir, tarball)));
 
-	// A throwaway project with no pi installed: peers stay unresolved, exactly as for a user who
-	// installed the package into pi but did not clone it.
+	// A throwaway project with no Amp host installed: the plugin's type package stays unresolved,
+	// exactly as for a user who installed the package but did not clone the plugin repository.
 	const project = join(root, "project");
 	mkdirSync(project);
 	writeFileSync(join(project, "package.json"), `${JSON.stringify({ name: "install-check", private: true }, null, "\t")}\n`);
@@ -62,14 +62,15 @@ try {
 	npm(["install", "--legacy-peer-deps", "--no-audit", "--no-fund", "--silent", "./package.tgz"], project);
 
 	const installed = join(project, "node_modules", packageName);
-	check("the tarball installs without pi's packages present", existsSync(join(installed, "src", "daemon.mjs")));
-	check("and without pi resolvable from it", !existsSync(join(project, "node_modules", "@earendil-works")));
+	check("the tarball installs without Amp's packages present", existsSync(join(installed, "src", "daemon.mjs")));
+	check("the Amp plugin entry is published", existsSync(join(installed, "index.ts")));
+	check("and without @ampcode/plugin resolvable from it", !existsSync(join(project, "node_modules", "@ampcode")));
 
 	const maildir = join(root, "fixtures");
 	mkdirSync(maildir);
 	writeFileSync(join(maildir, "install-check.eml"), fixture);
 
-	const config = join(root, "pi-email-listener.json");
+	const config = join(root, "amp-email-listener.json");
 	writeFileSync(
 		config,
 		`${JSON.stringify(
@@ -79,7 +80,7 @@ try {
 		)}\n`,
 	);
 	const mail = join(root, "mail");
-	const env = { ...process.env, PI_EMAIL_LISTENER_CONFIG: config, PI_EMAIL_LISTENER_MAIL_DIR: mail };
+	const env = { ...process.env, AMP_EMAIL_LISTENER_CONFIG: config, AMP_EMAIL_LISTENER_MAIL_DIR: mail };
 	const run = () =>
 		execFileSync(process.execPath, [join("node_modules", packageName, "src", "daemon.mjs"), "--once"], {
 			cwd: project,

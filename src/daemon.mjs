@@ -2,8 +2,8 @@
  * The detached fetcher's entry point, in plain JavaScript on purpose.
  *
  * An npm-installed copy of this package lives under node_modules, where Node refuses to strip
- * TypeScript types, so the fetcher is loaded through jiti — the loader pi itself uses for
- * extensions — which works from any location. Its output is the service log, so a failed start is
+ * TypeScript types, so the fetcher is loaded through jiti — a TypeScript loader that works from any
+ * location, including under node_modules. Its output is the service log, so a failed start is
  * reported there.
  *
  *   node src/daemon.mjs          poll forever

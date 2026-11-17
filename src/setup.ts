@@ -51,7 +51,7 @@ export async function signUpAgentMail(username: string, fetchImpl: typeof fetch 
 	const response = await fetchImpl("https://api.agentmail.to/v0/agent/sign-up", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ username, source: "pi-email-listener" }),
+		body: JSON.stringify({ username, source: "amp-email-listener" }),
 	});
 	const body = (await response.json().catch(() => ({}))) as {
 		inbox_id?: string;
@@ -188,7 +188,7 @@ export async function runSetup(ui: SetupUi, options: SetupOptions = {}): Promise
 	ui.notify(
 		[
 			`Done. Mail sent to ${address} is now fetched into the spool as account "${account.name}".`,
-			`Ask someone to cc ${address}, or forward it a message, then run /email-watch in the session that should be woken.`,
+			`Ask someone to cc ${address}, or forward it a message, then run /email.watch in Amp.`,
 		].join("\n"),
 		"info",
 	);
@@ -197,7 +197,7 @@ export async function runSetup(ui: SetupUi, options: SetupOptions = {}): Promise
 async function offerService(ui: SetupUi, start: typeof startService, path: string): Promise<void> {
 	const background = await ui.confirm(
 		"Keep it running in the background?",
-		"It will fetch mail whether or not a pi session is open. Nothing turns an agent until /email-watch is run in that session.",
+		"It will fetch mail whether or not an Amp session is open. Nothing wakes an agent until /email.watch is run.",
 	);
 	if (!background) return;
 	const state = start();
@@ -271,7 +271,7 @@ async function giveItAnAddress(
 		ui.notify("Signed in — the inbox and its Spam folder both answer.", "info");
 	} catch (error) {
 		// Already written on purpose; the fetcher retries on every pass.
-		ui.notify(`Saved, but the first login check failed: ${(error as Error).message}. The fetcher tries again on every pass; /email-service shows the last thing it said.`, "warning");
+		ui.notify(`Saved, but the first login check failed: ${(error as Error).message}. The fetcher tries again on every pass; /email.service shows the last thing it said.`, "warning");
 	}
 
 	await offerService(ui, start, path);
@@ -280,7 +280,7 @@ async function giveItAnAddress(
 		[
 			`Done. The agent's address is ${inbox.inboxId}, fetched as "${name}" and "${name}-spam".`,
 			`Its key is the password in ${path} — to make it recoverable, claim the inbox at ${AGENTMAIL_CLAIM}. That also lets it send, so only if you want that.`,
-			`Ask someone to cc ${inbox.inboxId}, or forward it a message, then run /email-watch in the session that should be woken.`,
+			`Ask someone to cc ${inbox.inboxId}, or forward it a message, then run /email.watch in Amp.`,
 		].join("\n"),
 		"info",
 	);

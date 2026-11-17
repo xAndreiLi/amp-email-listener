@@ -13,9 +13,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const root = mkdtempSync(join(tmpdir(), "pi-email-listener-auth-"));
+const root = mkdtempSync(join(tmpdir(), "amp-email-listener-auth-"));
 mkdirSync(join(root, "mail"), { recursive: true });
-process.env.PI_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
+process.env.AMP_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
 
 const { accessTokenFor, readTokens, signIn, writeTokens } = await import("../src/microsoft-auth.ts");
 const { accountDir } = await import("../src/spool.ts");

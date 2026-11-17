@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const root = mkdtempSync(join(tmpdir(), "pi-email-listener-service-"));
+const root = mkdtempSync(join(tmpdir(), "amp-email-listener-service-"));
 const fixtures = join(root, "fixtures");
 mkdirSync(fixtures, { recursive: true });
 mkdirSync(join(root, "mail"), { recursive: true });
@@ -31,8 +31,8 @@ writeFileSync(
 const configPath = join(root, "config.json");
 writeFileSync(configPath, JSON.stringify({ accounts: [{ name: "svc", provider: "fixture", dir: fixtures }], pollSeconds: 5 }));
 
-process.env.PI_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
-process.env.PI_EMAIL_LISTENER_CONFIG = configPath;
+process.env.AMP_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
+process.env.AMP_EMAIL_LISTENER_CONFIG = configPath;
 
 const { serviceState, serviceStatusText, startService, stopService } = await import("../src/service.ts");
 

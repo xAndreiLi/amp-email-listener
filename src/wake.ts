@@ -1,6 +1,6 @@
 /**
- * The wake half's logic, kept out of the extension so it can be tested without pi: what has not
- * been delivered yet, what the pointer says, and whether a message carries something the agent
+ * The wake half's logic, kept out of the plugin entry so it can be tested without the host: what has
+ * not been delivered yet, what the pointer says, and whether a message carries something the agent
  * should not act on by itself.
  */
 

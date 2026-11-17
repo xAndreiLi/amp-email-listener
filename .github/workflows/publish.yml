@@ -30,13 +30,21 @@ jobs:
           fi
           npm whoami
       # The tag is what triggers this workflow, but the suite is what decides whether it ships: a
-      # tag must not publish an artifact the checkout has not proven. `npm run live` is not here —
-      # it spawns a real pi session and spends a model call.
+      # tag must not publish an artifact the checkout has not proven. Loading the plugin in a real
+      # Amp session is done by hand.
       - name: Checks
         run: npm run test:all
+      # Amp executes plugins with Bun, so the same stub harness and the Node handoff run there too.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Amp runtime checks
+        run: |
+          bun run scripts/load-check.ts
+          bun run scripts/service-check.ts
       # The checkout the step above tests is not the layout users get: only an installed package sits
-      # under node_modules, where Node will not strip types and pi is not resolvable. This packs the
-      # tarball, installs it into a throwaway project and drives that copy, so a tag cannot publish
+      # under node_modules, where Node will not strip types and the Amp host is not present. This packs
+      # the tarball, installs it into a throwaway project and drives that copy, so a tag cannot publish
       # an artifact that only works from a checkout.
       - name: Installed-copy check
         run: npm run install-check
@@ -56,9 +64,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version=$(node -p "require('./package.json').version")
-          if npm view "pi-email-listener@${version}" version >/dev/null 2>&1; then
+          if npm view "amp-email-listener@${version}" version >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "pi-email-listener@${version} is already published; skipping publish so tag pushes stay idempotent."
+            echo "amp-email-listener@${version} is already published; skipping publish so tag pushes stay idempotent."
           fi
       - name: Publish
         if: steps.published.outputs.exists != 'true'

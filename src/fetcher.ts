@@ -1,8 +1,8 @@
 /**
- * The fetcher: the always-on half of pi-email-listener.
+ * The fetcher: the always-on half of amp-email-listener.
  *
  * It owns the provider connection and the sync position, and its only output is spool files. It
- * needs no pi session, and nothing downstream can tell whether one was open while it ran.
+ * needs no Amp session, and nothing downstream can tell whether one was open while it ran.
  *
  *   npm run fetch          poll forever
  *   npm run fetch:once     one pass per account, then exit

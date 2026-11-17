@@ -11,7 +11,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const root = mkdtempSync(join(tmpdir(), "pi-email-listener-setup-"));
+const root = mkdtempSync(join(tmpdir(), "amp-email-listener-setup-"));
 
 const { runSetup, signUpAgentMail } = await import("../src/setup.ts");
 
@@ -61,7 +61,7 @@ function stubUi(script: Script) {
 const GMAIL = "A new Gmail for the agent";
 const dir = join(root, "one");
 mkdirSync(dir, { recursive: true });
-const path = join(dir, "pi-email-listener.json");
+const path = join(dir, "amp-email-listener.json");
 
 // ---------------------------------------------------------------- the happy path
 
@@ -226,7 +226,7 @@ check("and declining makes nothing", twiceSignUps === 0 && read(twicePath).accou
 
 const lockedDir = join(root, "locked");
 mkdirSync(lockedDir);
-const lockedPath = join(lockedDir, "pi-email-listener.json");
+const lockedPath = join(lockedDir, "amp-email-listener.json");
 writeFileSync(lockedPath, JSON.stringify({ accounts: [], pollSeconds: 30 }));
 chmodSync(lockedPath, 0o444);
 const locked = stubUi({ select: AGENTMAIL, inputs: ["rescued"], confirms: [false] });
