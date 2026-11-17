@@ -25,6 +25,8 @@ export interface SetupOptions {
 	verify?: typeof verifyImap;
 	/** Injected so the check does not open a browser or spawn anything. */
 	open?: (url: string) => void;
+	/** Injected so the check can see what would be copied without touching a real clipboard. */
+	copy?: (text: string) => Promise<boolean>;
 	/** Injected so the check can create an address without creating one at AgentMail. */
 	signUp?: typeof signUpAgentMail;
 }
@@ -74,6 +76,7 @@ async function promptToClaim(
 	inbox: AgentMailInbox,
 	keyLocation: string,
 	open: (url: string) => void,
+	copy: (text: string) => Promise<boolean>,
 ): Promise<void> {
 	const claim = await ui.confirm(
 		"Claim the agent's inbox?",
@@ -84,8 +87,15 @@ async function promptToClaim(
 		].join("\n"),
 	);
 	if (claim) {
+		// The claim page asks for the key, so put it where the person can paste it.
+		const copied = await copy(inbox.apiKey);
 		open(AGENTMAIL_CLAIM);
-		ui.notify(`Opened ${AGENTMAIL_CLAIM}. Claim ${inbox.inboxId} there. The key is in ${keyLocation}.`, "info");
+		ui.notify(
+			copied
+				? `Opened ${AGENTMAIL_CLAIM}. Claim ${inbox.inboxId} there — the key is on your clipboard. It is also in ${keyLocation}.`
+				: `Opened ${AGENTMAIL_CLAIM}. Claim ${inbox.inboxId} there. The key is in ${keyLocation}.`,
+			"info",
+		);
 		return;
 	}
 	ui.notify(`Not claimed. Keep ${keyLocation} safe; AgentMail cannot recover the key.`, "info");
@@ -112,10 +122,62 @@ export function openInBrowser(url: string): void {
 	child.unref();
 }
 
+/** Write to the system clipboard. Best effort: the key file is always the fallback. */
+function copyWith(command: string, args: string[], text: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		let settled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const finish = (ok: boolean) => {
+			if (settled) return;
+			settled = true;
+			if (timer) clearTimeout(timer);
+			resolve(ok);
+		};
+		let child: ReturnType<typeof spawn>;
+		try {
+			child = spawn(command, args, { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+		} catch {
+			resolve(false);
+			return;
+		}
+		// A clipboard tool that never exits must not hold up setup.
+		timer = setTimeout(() => {
+			try {
+				child.kill();
+			} catch {
+				// Already gone.
+			}
+			finish(false);
+		}, 2000);
+		child.on("error", () => finish(false));
+		child.on("close", (code) => finish(code === 0));
+		child.stdin?.on("error", () => {});
+		child.stdin?.end(text);
+	});
+}
+
+/**
+ * Copy the key so it can be pasted into AgentMail's claim page. A headless machine may have no
+ * clipboard tool; the key is still in the key file, so that is not an error.
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+	if (process.platform === "win32") return copyWith("clip", [], text);
+	if (process.platform === "darwin") return copyWith("pbcopy", [], text);
+	for (const [command, args] of [
+		["wl-copy", []],
+		["xclip", ["-selection", "clipboard"]],
+		["xsel", ["--clipboard", "--input"]],
+	] as const) {
+		if (await copyWith(command, args, text)) return true;
+	}
+	return false;
+}
+
 export async function runSetup(ui: SetupUi, options: SetupOptions = {}): Promise<void> {
 	const path = options.path ?? configPath();
 	const verify = options.verify ?? verifyImap;
 	const open = options.open ?? openInBrowser;
+	const copy = options.copy ?? copyToClipboard;
 
 	const already = readConfigFile(path);
 	ui.notify(
@@ -136,7 +198,7 @@ export async function runSetup(ui: SetupUi, options: SetupOptions = {}): Promise
 		return;
 	}
 	if (kind === AGENTMAIL) {
-		await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify, open);
+		await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify, open, copy);
 		return;
 	}
 
@@ -227,6 +289,7 @@ async function giveItAnAddress(
 	signUp: typeof signUpAgentMail,
 	verify: typeof verifyImap,
 	open: (url: string) => void,
+	copy: (text: string) => Promise<boolean>,
 ): Promise<void> {
 	const existing = already.accounts?.find((one) => one.host === AGENTMAIL_IMAP && (one.folder ?? "INBOX") === "INBOX");
 	if (existing && !(await ui.confirm(`This machine already has an address: ${existing.user}`, "Creating another makes a second, separate inbox. Continue?"))) {
@@ -271,7 +334,7 @@ async function giveItAnAddress(
 			`Created ${inbox.inboxId}, but the config could not be written (${(error as Error).message}). Its key is in ${rescue} instead — keep that file, because AgentMail cannot recover the key.`,
 			"error",
 		);
-		await promptToClaim(ui, inbox, rescue, open);
+		await promptToClaim(ui, inbox, rescue, open, copy);
 		return;
 	}
 
@@ -285,7 +348,7 @@ async function giveItAnAddress(
 		ui.notify(`Saved, but the first login check failed: ${(error as Error).message}. Amp retries on every poll.`, "warning");
 	}
 
-	await promptToClaim(ui, inbox, path, open);
+	await promptToClaim(ui, inbox, path, open, copy);
 
 	ui.notify(
 		[

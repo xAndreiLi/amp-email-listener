@@ -161,10 +161,15 @@ const read = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Written
 const amPath = join(root, "agentmail.json");
 const am = stubUi({ select: AGENTMAIL, inputs: ["taken", "pm-assistant"], confirms: [true] });
 const tried: string[] = [];
+const copied: string[] = [];
 const checked: { mailbox?: unknown; writtenFirst: boolean }[] = [];
 await runSetup(am.ui, {
 	path: amPath,
 	open: (url) => am.opened.push(url),
+	copy: async (text: string) => {
+		copied.push(text);
+		return true;
+	},
 	signUp: async (username: string) => {
 		tried.push(username);
 		if (username === "taken") throw new Error("Username is already taken");
@@ -186,6 +191,8 @@ check("both folders are checked, and only once the key is safely written", check
 check("the claim prompt is offered after the inbox is created", am.asked.some((question) => question.startsWith("confirm:Claim")));
 check("confirming opens AgentMail's claim page", am.opened.includes("https://console.agentmail.to/claim"));
 check("the claim notice keeps the key path visible", am.notices.some((line) => line.includes("Opened") && line.includes(amPath)));
+check("confirming the claim copies the key for the claim page", copied.length === 1 && copied[0] === KEY);
+check("and the notice says the key is on the clipboard", am.notices.some((line) => line.includes("clipboard")));
 check("the key never appears in anything said on screen", am.notices.every((line) => !line.includes(KEY)));
 check("the last thing it says names the address", am.notices.at(-1)?.includes("pm-assistant@agentmail.to") === true);
 
@@ -202,6 +209,20 @@ await runSetup(kept.ui, {
 check("a failed first login keeps the account, because the key cannot be fetched again", read(keptPath).accounts.length === 2 && kept.notices.some((line) => line.includes("connection reset")));
 check("a failed login still prompts to claim the inbox", kept.asked.some((question) => question.startsWith("confirm:Claim")));
 check("declining the claim points back to the key file", kept.notices.some((line) => line.includes("Not claimed") && line.includes(keptPath)));
+
+const copyFailedPath = join(root, "copy-failed.json");
+const copyFailed = stubUi({ select: AGENTMAIL, inputs: ["copyfail"], confirms: [true] });
+await runSetup(copyFailed.ui, {
+	path: copyFailedPath,
+	open: () => {},
+	copy: async () => false,
+	signUp: async (username: string) => made(username),
+	verify: async () => ({ messages: 0 }),
+});
+check(
+	"a clipboard that is unavailable still points at the key file",
+	copyFailed.notices.some((line) => line.includes("Opened") && line.includes(copyFailedPath) && !line.includes("clipboard")),
+);
 
 const twicePath = join(root, "twice.json");
 writeFileSync(twicePath, JSON.stringify({ accounts: [{ name: "suruiling", provider: "imap", host: "imap.agentmail.to", user: "suruiling@agentmail.to", password: "x", folder: "INBOX" }], pollSeconds: 30 }));

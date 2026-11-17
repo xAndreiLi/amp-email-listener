@@ -41775,7 +41775,8 @@ var exports_setup = {};
 __export(exports_setup, {
   signUpAgentMail: () => signUpAgentMail,
   runSetup: () => runSetup,
-  openInBrowser: () => openInBrowser
+  openInBrowser: () => openInBrowser,
+  copyToClipboard: () => copyToClipboard
 });
 import { spawn } from "child_process";
 import { writeFileSync as writeFileSync5 } from "fs";
@@ -41792,7 +41793,7 @@ async function signUpAgentMail(username, fetchImpl = fetch) {
   }
   return { inboxId: body.inbox_id, apiKey: body.api_key };
 }
-async function promptToClaim(ui, inbox, keyLocation, open) {
+async function promptToClaim(ui, inbox, keyLocation, open, copy2) {
   const claim = await ui.confirm("Claim the agent's inbox?", [
     `Claim ${inbox.inboxId} at ${AGENTMAIL_CLAIM}.`,
     "Claiming makes the key recoverable and unlocks sending. This plugin never sends mail.",
@@ -41800,8 +41801,9 @@ async function promptToClaim(ui, inbox, keyLocation, open) {
   ].join(`
 `));
   if (claim) {
+    const copied = await copy2(inbox.apiKey);
     open(AGENTMAIL_CLAIM);
-    ui.notify(`Opened ${AGENTMAIL_CLAIM}. Claim ${inbox.inboxId} there. The key is in ${keyLocation}.`, "info");
+    ui.notify(copied ? `Opened ${AGENTMAIL_CLAIM}. Claim ${inbox.inboxId} there \u2014 the key is on your clipboard. It is also in ${keyLocation}.` : `Opened ${AGENTMAIL_CLAIM}. Claim ${inbox.inboxId} there. The key is in ${keyLocation}.`, "info");
     return;
   }
   ui.notify(`Not claimed. Keep ${keyLocation} safe; AgentMail cannot recover the key.`, "info");
@@ -41815,10 +41817,57 @@ function openInBrowser(url) {
   child.on("error", () => {});
   child.unref();
 }
+function copyWith(command2, args, text) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer;
+    const finish = (ok) => {
+      if (settled)
+        return;
+      settled = true;
+      if (timer)
+        clearTimeout(timer);
+      resolve(ok);
+    };
+    let child;
+    try {
+      child = spawn(command2, args, { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+    } catch {
+      resolve(false);
+      return;
+    }
+    timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {}
+      finish(false);
+    }, 2000);
+    child.on("error", () => finish(false));
+    child.on("close", (code) => finish(code === 0));
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(text);
+  });
+}
+async function copyToClipboard(text) {
+  if (process.platform === "win32")
+    return copyWith("clip", [], text);
+  if (process.platform === "darwin")
+    return copyWith("pbcopy", [], text);
+  for (const [command2, args] of [
+    ["wl-copy", []],
+    ["xclip", ["-selection", "clipboard"]],
+    ["xsel", ["--clipboard", "--input"]]
+  ]) {
+    if (await copyWith(command2, args, text))
+      return true;
+  }
+  return false;
+}
 async function runSetup(ui, options = {}) {
   const path = options.path ?? configPath();
   const verify2 = options.verify ?? verifyImap;
   const open = options.open ?? openInBrowser;
+  const copy2 = options.copy ?? copyToClipboard;
   const already = readConfigFile(path);
   ui.notify(already.accounts?.length ? `Mail is configured for: ${already.accounts.map((one) => one.name).join(", ")}. Amp fetches it while it runs.` : "Mail is not configured yet. A new address for the agent takes a minute; a mailbox of your own, a few.", "info");
   const kind = await ui.select("How should the agent get mail?", [
@@ -41831,7 +41880,7 @@ async function runSetup(ui, options = {}) {
     return;
   }
   if (kind === AGENTMAIL) {
-    await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify2, open);
+    await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify2, open, copy2);
     return;
   }
   if (kind === GMAIL) {
@@ -41896,7 +41945,7 @@ async function runSetup(ui, options = {}) {
   ].join(`
 `), "info");
 }
-async function giveItAnAddress(ui, already, path, signUp, verify2, open) {
+async function giveItAnAddress(ui, already, path, signUp, verify2, open, copy2) {
   const existing = already.accounts?.find((one) => one.host === AGENTMAIL_IMAP && (one.folder ?? "INBOX") === "INBOX");
   if (existing && !await ui.confirm(`This machine already has an address: ${existing.user}`, "Creating another makes a second, separate inbox. Continue?")) {
     ui.notify("Setup cancelled.", "info");
@@ -41932,7 +41981,7 @@ async function giveItAnAddress(ui, already, path, signUp, verify2, open) {
     writeFileSync5(rescue, `${JSON.stringify({ inbox_id: inbox.inboxId, api_key: inbox.apiKey }, null, "\t")}
 `, { mode: 384 });
     ui.notify(`Created ${inbox.inboxId}, but the config could not be written (${error.message}). Its key is in ${rescue} instead \u2014 keep that file, because AgentMail cannot recover the key.`, "error");
-    await promptToClaim(ui, inbox, rescue, open);
+    await promptToClaim(ui, inbox, rescue, open, copy2);
     return;
   }
   ui.notify(`Created ${inbox.inboxId}. Checking the login\u2026`, "info");
@@ -41943,7 +41992,7 @@ async function giveItAnAddress(ui, already, path, signUp, verify2, open) {
   } catch (error) {
     ui.notify(`Saved, but the first login check failed: ${error.message}. Amp retries on every poll.`, "warning");
   }
-  await promptToClaim(ui, inbox, path, open);
+  await promptToClaim(ui, inbox, path, open, copy2);
   ui.notify([
     `Done. The agent's address is ${inbox.inboxId}, fetched as "${name2}" and "${name2}-spam".`,
     `Its key is the password in ${path}. Claim it at ${AGENTMAIL_CLAIM} if you have not already; claiming also enables sending, which this plugin never uses.`,
