@@ -41730,6 +41730,20 @@ async function signUpAgentMail(username, fetchImpl = fetch) {
   }
   return { inboxId: body.inbox_id, apiKey: body.api_key };
 }
+async function promptToClaim(ui, inbox, keyLocation, open) {
+  const claim = await ui.confirm("Claim the agent's inbox?", [
+    `Claim ${inbox.inboxId} at ${AGENTMAIL_CLAIM}.`,
+    "Claiming makes the key recoverable and unlocks sending. This plugin never sends mail.",
+    `If you skip it, AgentMail cannot recover the key; it is in ${keyLocation}.`
+  ].join(`
+`));
+  if (claim) {
+    open(AGENTMAIL_CLAIM);
+    ui.notify(`Opened ${AGENTMAIL_CLAIM}. Claim ${inbox.inboxId} there. The key is in ${keyLocation}.`, "info");
+    return;
+  }
+  ui.notify(`Not claimed. Keep ${keyLocation} safe; AgentMail cannot recover the key.`, "info");
+}
 function accountName(address) {
   return (address.split("@")[0] ?? "agent").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
 }
@@ -41755,7 +41769,7 @@ async function runSetup(ui, options = {}) {
     return;
   }
   if (kind === AGENTMAIL) {
-    await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify2);
+    await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify2, open);
     return;
   }
   if (kind === GMAIL) {
@@ -41820,7 +41834,7 @@ async function runSetup(ui, options = {}) {
   ].join(`
 `), "info");
 }
-async function giveItAnAddress(ui, already, path, signUp, verify2) {
+async function giveItAnAddress(ui, already, path, signUp, verify2, open) {
   const existing = already.accounts?.find((one) => one.host === AGENTMAIL_IMAP && (one.folder ?? "INBOX") === "INBOX");
   if (existing && !await ui.confirm(`This machine already has an address: ${existing.user}`, "Creating another makes a second, separate inbox. Continue?")) {
     ui.notify("Setup cancelled.", "info");
@@ -41856,6 +41870,7 @@ async function giveItAnAddress(ui, already, path, signUp, verify2) {
     writeFileSync5(rescue, `${JSON.stringify({ inbox_id: inbox.inboxId, api_key: inbox.apiKey }, null, "\t")}
 `, { mode: 384 });
     ui.notify(`Created ${inbox.inboxId}, but the config could not be written (${error.message}). Its key is in ${rescue} instead \u2014 keep that file, because AgentMail cannot recover the key.`, "error");
+    await promptToClaim(ui, inbox, rescue, open);
     return;
   }
   ui.notify(`Created ${inbox.inboxId}. Checking the login\u2026`, "info");
@@ -41866,9 +41881,10 @@ async function giveItAnAddress(ui, already, path, signUp, verify2) {
   } catch (error) {
     ui.notify(`Saved, but the first login check failed: ${error.message}. Amp retries on every poll.`, "warning");
   }
+  await promptToClaim(ui, inbox, path, open);
   ui.notify([
     `Done. The agent's address is ${inbox.inboxId}, fetched as "${name2}" and "${name2}-spam".`,
-    `Its key is the password in ${path} \u2014 to make it recoverable, claim the inbox at ${AGENTMAIL_CLAIM}. That also lets it send, so only if you want that.`,
+    `Its key is the password in ${path}. Claim it at ${AGENTMAIL_CLAIM} if you have not already; claiming also enables sending, which this plugin never uses.`,
     `Amp fetches it while it runs, and catches up on anything that arrived while it was off.`
   ].join(`
 `), "info");

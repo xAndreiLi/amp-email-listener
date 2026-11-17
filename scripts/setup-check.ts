@@ -159,12 +159,12 @@ type Written = { accounts: { name: string; provider: string; host?: string; user
 const read = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Written;
 
 const amPath = join(root, "agentmail.json");
-const am = stubUi({ select: AGENTMAIL, inputs: ["taken", "pm-assistant"], confirms: [false] });
+const am = stubUi({ select: AGENTMAIL, inputs: ["taken", "pm-assistant"], confirms: [true] });
 const tried: string[] = [];
 const checked: { mailbox?: unknown; writtenFirst: boolean }[] = [];
 await runSetup(am.ui, {
 	path: amPath,
-	open: () => {},
+	open: (url) => am.opened.push(url),
 	signUp: async (username: string) => {
 		tried.push(username);
 		if (username === "taken") throw new Error("Username is already taken");
@@ -183,6 +183,9 @@ check("the address is read over IMAP like any other mailbox", inbox?.provider ==
 check("its Spam folder is watched as well", amAccounts.some((one) => one.name === "pm-assistant-spam" && one.folder === "Spam"));
 check("the key is stored as the password of both", amAccounts.length === 2 && amAccounts.every((one) => one.password === KEY));
 check("both folders are checked, and only once the key is safely written", checked.length === 2 && checked[1]?.mailbox === "Spam" && checked.every((one) => one.writtenFirst));
+check("the claim prompt is offered after the inbox is created", am.asked.some((question) => question.startsWith("confirm:Claim")));
+check("confirming opens AgentMail's claim page", am.opened.includes("https://console.agentmail.to/claim"));
+check("the claim notice keeps the key path visible", am.notices.some((line) => line.includes("Opened") && line.includes(amPath)));
 check("the key never appears in anything said on screen", am.notices.every((line) => !line.includes(KEY)));
 check("the last thing it says names the address", am.notices.at(-1)?.includes("pm-assistant@agentmail.to") === true);
 
@@ -197,6 +200,8 @@ await runSetup(kept.ui, {
 	},
 });
 check("a failed first login keeps the account, because the key cannot be fetched again", read(keptPath).accounts.length === 2 && kept.notices.some((line) => line.includes("connection reset")));
+check("a failed login still prompts to claim the inbox", kept.asked.some((question) => question.startsWith("confirm:Claim")));
+check("declining the claim points back to the key file", kept.notices.some((line) => line.includes("Not claimed") && line.includes(keptPath)));
 
 const twicePath = join(root, "twice.json");
 writeFileSync(twicePath, JSON.stringify({ accounts: [{ name: "suruiling", provider: "imap", host: "imap.agentmail.to", user: "suruiling@agentmail.to", password: "x", folder: "INBOX" }], pollSeconds: 30 }));
@@ -225,6 +230,8 @@ chmodSync(lockedPath, 0o644);
 const rescue = `${lockedPath}.rescued.agentmail.json`;
 check("a config that cannot be written does not lose the key", existsSync(rescue) && readFileSync(rescue, "utf8").includes(KEY));
 check("it says where the key went, without showing it", locked.notices.some((line) => line.includes(rescue)) && locked.notices.every((line) => !line.includes(KEY)));
+check("the rescue path still prompts to claim the inbox", locked.asked.some((question) => question.startsWith("confirm:Claim")));
+check("declining the claim points back to the rescue file", locked.notices.some((line) => line.includes("Not claimed") && line.includes(rescue)));
 
 // The sign-up call itself, against AgentMail's documented response and error shapes.
 let sent: { url?: string; body?: Record<string, unknown> } = {};

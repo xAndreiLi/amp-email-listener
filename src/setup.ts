@@ -65,6 +65,32 @@ export async function signUpAgentMail(username: string, fetchImpl: typeof fetch 
 	return { inboxId: body.inbox_id, apiKey: body.api_key };
 }
 
+/**
+ * Offer the one action that makes the key recoverable. Claiming also unlocks sending, which this
+ * package never uses, so the trade-off is stated plainly instead of assumed.
+ */
+async function promptToClaim(
+	ui: SetupUi,
+	inbox: AgentMailInbox,
+	keyLocation: string,
+	open: (url: string) => void,
+): Promise<void> {
+	const claim = await ui.confirm(
+		"Claim the agent's inbox?",
+		[
+			`Claim ${inbox.inboxId} at ${AGENTMAIL_CLAIM}.`,
+			"Claiming makes the key recoverable and unlocks sending. This plugin never sends mail.",
+			`If you skip it, AgentMail cannot recover the key; it is in ${keyLocation}.`,
+		].join("\n"),
+	);
+	if (claim) {
+		open(AGENTMAIL_CLAIM);
+		ui.notify(`Opened ${AGENTMAIL_CLAIM}. Claim ${inbox.inboxId} there. The key is in ${keyLocation}.`, "info");
+		return;
+	}
+	ui.notify(`Not claimed. Keep ${keyLocation} safe; AgentMail cannot recover the key.`, "info");
+}
+
 /** The part of an address before the @, made safe to use as a directory name. */
 function accountName(address: string): string {
 	return (address.split("@")[0] ?? "agent").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
@@ -110,7 +136,7 @@ export async function runSetup(ui: SetupUi, options: SetupOptions = {}): Promise
 		return;
 	}
 	if (kind === AGENTMAIL) {
-		await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify);
+		await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify, open);
 		return;
 	}
 
@@ -200,6 +226,7 @@ async function giveItAnAddress(
 	path: string,
 	signUp: typeof signUpAgentMail,
 	verify: typeof verifyImap,
+	open: (url: string) => void,
 ): Promise<void> {
 	const existing = already.accounts?.find((one) => one.host === AGENTMAIL_IMAP && (one.folder ?? "INBOX") === "INBOX");
 	if (existing && !(await ui.confirm(`This machine already has an address: ${existing.user}`, "Creating another makes a second, separate inbox. Continue?"))) {
@@ -244,6 +271,7 @@ async function giveItAnAddress(
 			`Created ${inbox.inboxId}, but the config could not be written (${(error as Error).message}). Its key is in ${rescue} instead — keep that file, because AgentMail cannot recover the key.`,
 			"error",
 		);
+		await promptToClaim(ui, inbox, rescue, open);
 		return;
 	}
 
@@ -257,10 +285,12 @@ async function giveItAnAddress(
 		ui.notify(`Saved, but the first login check failed: ${(error as Error).message}. Amp retries on every poll.`, "warning");
 	}
 
+	await promptToClaim(ui, inbox, path, open);
+
 	ui.notify(
 		[
 			`Done. The agent's address is ${inbox.inboxId}, fetched as "${name}" and "${name}-spam".`,
-			`Its key is the password in ${path} — to make it recoverable, claim the inbox at ${AGENTMAIL_CLAIM}. That also lets it send, so only if you want that.`,
+			`Its key is the password in ${path}. Claim it at ${AGENTMAIL_CLAIM} if you have not already; claiming also enables sending, which this plugin never uses.`,
 			`Amp fetches it while it runs, and catches up on anything that arrived while it was off.`,
 		].join("\n"),
 		"info",

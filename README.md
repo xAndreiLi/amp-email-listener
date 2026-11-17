@@ -37,7 +37,9 @@ amp clone user-plugins
 
 1. Run `/email.setup`, or pick **Email: Set up a mailbox** from the command palette. Choose **Give
    the agent its own address** to get `<name>@agentmail.to` in a minute — free, no sign-up, and
-   receive-only. Or connect a new Gmail or any IMAP mailbox you already have.
+   receive-only. After it is created, the wizard offers to open AgentMail's claim page; claiming makes
+   the key recoverable and enables sending, which the plugin never uses. Or connect a new Gmail or any
+   IMAP mailbox you already have.
 
 2. Ask someone to cc the agent, or forward it a message.
 
