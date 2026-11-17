@@ -180,11 +180,16 @@ check("a later pass does not fetch the same mail again", first.messages.length =
 
 await commands.get("email.setup")!.handler(ctx);
 check("setup cancels cleanly when the user dismisses it", notices.some((line) => line.includes("Setup cancelled")));
+check(
+	"the watch commands are separate and named for their actions",
+	commands.get("email.watch.start")?.options.title === "Start Watching Mail" &&
+		commands.get("email.watch.stop")?.options.title === "Stop Watching Mail",
+);
 
 // ---------------------------------------------------------------- stopping and catching up
 
-await commands.get("email.watch")!.handler(ctx);
-check("the command stops watching", notices.some((line) => line.includes("Stopped watching")));
+await commands.get("email.watch.stop")!.handler(ctx);
+check("the stop command stops watching", notices.some((line) => line.includes("Stopped watching")));
 write(
 	"c.eml",
 	[
@@ -201,11 +206,16 @@ check("nothing is fetched while watching is off", first.messages.length === 2);
 
 const watch = makeThread("T-watch");
 ctx.thread = watch;
-await commands.get("email.watch")!.handler(ctx);
+await commands.get("email.watch.start")!.handler(ctx);
 await settle(300);
 check("restarting fetches the mail that arrived while it was off", watch.messages.length === 1);
 check("and the old backlog is not delivered again", first.messages.length === 2);
-check("mail goes to the thread /email.watch ran in", watch.messages[0].includes("after hours"));
+check("mail goes to the thread the start command ran in", watch.messages[0].includes("after hours"));
+await commands.get("email.watch.start")!.handler(ctx);
+check(
+	"starting again keeps the thread binding",
+	notices.some((line) => line.includes("Already watching mail in this thread")),
+);
 
 // ---------------------------------------------------------------- quarantine
 
@@ -237,7 +247,7 @@ check("the tools come back when the turn ends", (await toolCall("T-watch", "shel
 
 // ---------------------------------------------------------------- queued behind a turn
 
-await commands.get("email.watch")!.handler(ctx);
+await commands.get("email.watch.stop")!.handler(ctx);
 holdStart = true;
 expectCareDuringAppend = true;
 write(
@@ -251,7 +261,7 @@ write(
 	],
 	"Also review https://example.com/another before Monday.",
 );
-await commands.get("email.watch")!.handler(ctx);
+await commands.get("email.watch.start")!.handler(ctx);
 await settle(300);
 check("the queued message is delivered", watch.messages.length === 3 && heldMessage !== undefined);
 // The turn before it ends first; that must not clear the queued message's gate.
@@ -264,7 +274,7 @@ check(
 await fire("agent.end", { thread: { id: "T-watch" }, status: "done" });
 check("and comes back when its own turn ends", (await toolCall("T-watch", "shell_command"))?.action === "allow");
 
-await commands.get("email.watch")!.handler(ctx);
+await commands.get("email.watch.stop")!.handler(ctx);
 check("watching stops again", notices.filter((line) => line.includes("Stopped watching")).length === 3);
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");

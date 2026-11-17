@@ -24,7 +24,7 @@ export default function (amp: PluginAPI) {
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let busy = false;
 	let complained = false;
-	/** The thread /email.watch was run in, if any. Mail prefers it over whatever is focused later. */
+	/** The thread Start Watching Mail was run in, if any. Mail prefers it over whatever is focused later. */
 	let watchThreadId: ThreadID | undefined;
 	/** The thread mail is appended to when no watch or active thread exists. */
 	let mailThreadId: ThreadID | undefined;
@@ -88,7 +88,7 @@ export default function (amp: PluginAPI) {
 			try {
 				return await append(amp.threads.get(watchThreadId));
 			} catch {
-				// The thread /email.watch ran in was archived or deleted; fall through.
+				// The thread Start Watching Mail ran in was archived or deleted; fall through.
 				watchThreadId = undefined;
 			}
 		}
@@ -231,20 +231,45 @@ export default function (amp: PluginAPI) {
 	});
 
 	amp.registerCommand(
-		"email.watch",
+		"email.watch.start",
 		{
-			title: "Watch mail (toggle)",
+			title: "Start Watching Mail",
 			category: "Email",
-			description: "Start or stop waking this Amp agent for new mail.",
+			description: "Watch the configured mailboxes and deliver new mail to this thread.",
 		},
 		async (ctx) => {
 			const notify = (message: string) => void ctx.ui.notify(message);
+			const threadId = ctx.thread?.id;
 			if (timer) {
-				await stop();
-				notify("Stopped watching mail.");
+				if (threadId && watchThreadId !== threadId) {
+					watchThreadId = threadId;
+					notify("Watching mail in this thread.");
+				} else if (threadId) {
+					notify("Already watching mail in this thread.");
+				} else {
+					notify("Already watching mail.");
+				}
 				return;
 			}
-			await start(notify, ctx.thread?.id);
+			await start(notify, threadId);
+		},
+	);
+
+	amp.registerCommand(
+		"email.watch.stop",
+		{
+			title: "Stop Watching Mail",
+			category: "Email",
+			description: "Stop watching the configured mailboxes.",
+		},
+		async (ctx) => {
+			const notify = (message: string) => void ctx.ui.notify(message);
+			if (!timer) {
+				notify("Not watching mail.");
+				return;
+			}
+			await stop();
+			notify("Stopped watching mail.");
 		},
 	);
 

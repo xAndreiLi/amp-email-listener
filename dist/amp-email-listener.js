@@ -42370,18 +42370,38 @@ function pi_email_listener_default(amp) {
   amp.onDispose(async () => {
     await stop();
   });
-  amp.registerCommand("email.watch", {
-    title: "Watch mail (toggle)",
+  amp.registerCommand("email.watch.start", {
+    title: "Start Watching Mail",
     category: "Email",
-    description: "Start or stop waking this Amp agent for new mail."
+    description: "Watch the configured mailboxes and deliver new mail to this thread."
   }, async (ctx) => {
     const notify = (message) => void ctx.ui.notify(message);
+    const threadId = ctx.thread?.id;
     if (timer) {
-      await stop();
-      notify("Stopped watching mail.");
+      if (threadId && watchThreadId !== threadId) {
+        watchThreadId = threadId;
+        notify("Watching mail in this thread.");
+      } else if (threadId) {
+        notify("Already watching mail in this thread.");
+      } else {
+        notify("Already watching mail.");
+      }
       return;
     }
-    await start(notify, ctx.thread?.id);
+    await start(notify, threadId);
+  });
+  amp.registerCommand("email.watch.stop", {
+    title: "Stop Watching Mail",
+    category: "Email",
+    description: "Stop watching the configured mailboxes."
+  }, async (ctx) => {
+    const notify = (message) => void ctx.ui.notify(message);
+    if (!timer) {
+      notify("Not watching mail.");
+      return;
+    }
+    await stop();
+    notify("Stopped watching mail.");
   });
   amp.registerCommand("email.setup", {
     title: "Set up a mailbox",

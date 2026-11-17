@@ -41,15 +41,17 @@ amp clone user-plugins
 
 2. Ask someone to cc the agent, or forward it a message.
 
-3. The plugin starts fetching as soon as a mailbox is configured. `/email.watch` toggles it off and
-   on, and mail that arrived while Amp was off is fetched on the next start.
+3. The plugin starts fetching as soon as a mailbox is configured. **Email: Start Watching Mail**
+   binds delivery to this thread; **Email: Stop Watching Mail** stops polling. Mail that arrived
+   while Amp was off is fetched on the next start.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `/email.setup` | Connect a mailbox |
-| `/email.watch` | Start or stop watching mail |
+| `Email: Set up a mailbox` (`/email.setup`) | Connect a mailbox |
+| `Email: Start Watching Mail` (`/email.watch.start`) | Start watching mail and deliver it to this thread |
+| `Email: Stop Watching Mail` (`/email.watch.stop`) | Stop watching mail |
 
 The plugin fetches mail while Amp is running. There is no always-on service: when Amp starts, the
 first pass reads each mailbox from its saved cursor, so missed mail is fetched and wakes the agent
