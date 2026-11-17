@@ -2,7 +2,7 @@
 title: "No gate, a pointer not a digest, and watching while Amp runs"
 type: decision
 topic: decisions
-summary: "amp-email-listener turns the agent for every message — no relevance gate, no batching, no suppression rules — and the wake carries the sender, the subject and a file path rather than the body. The plugin starts watching when it loads with a configured mailbox; Email: Start Watching Mail binds delivery to a thread, Email: Stop Watching Mail stops polling, and Email: Choose Delivery Target selects this thread or a new thread per email. A message with a link or attachment turns the agent with shell, edit and write blocked until the turn ends."
+summary: "amp-email-listener turns the agent for every message — no relevance gate, no batching, no suppression rules — and the wake carries the sender, the subject and a file path rather than the body. The plugin starts watching when it loads with a configured mailbox; Email: Start Watching Mail binds delivery to a thread, Email: Stop Watching Mail stops polling, and Email: Choose Delivery Target selects this thread or a new thread per email. Email: Configure Mailboxes activates, deactivates or removes saved mailboxes. A message with a link or attachment turns the agent with shell, edit and write blocked until the turn ends."
 tags: [decision, gate, wake-payload, amp-plugin, quarantine, email]
 updated: 2026-11-17
 sources: [home: raw/sessions/2026-10-09-session-2026-10-09-055057.md, home: raw/sessions/2026-10-09-session-2026-10-09-061532.md]
@@ -132,6 +132,13 @@ claims:
     status: user-stated
     support: 0.95
     evidence: ["user: Andrei Li, 2026-11-17 — 'Users should also be able to configure whether to bind to an existing thread or start a new thread when an email comes in.'", "file: index.ts — deliveryMode, email.delivery, saveDelivery", "file: src/spool.ts — withAccountLock() serializes a whole account pass", "command: npm run load-check → 'the delivery target is persisted', 'new mode creates a new thread for the email', 'the old thread does not receive it'", "command: npm run self-check → 'only one account pass holds the lock'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
+  - id: c19
+    text: "Mailboxes are configurable from the palette: Email: Configure Mailboxes lists saved mailboxes with their status, and selecting one offers only the applicable toggle — Deactivate when it is active or partially active, Activate when it is deactivated — plus Remove. Deactivation keeps the account and spool but stops it waking; removal deletes the config entry and leaves stored messages on disk."
+    status: user-stated
+    support: 0.95
+    evidence: ["user: Andrei Li, 2026-11-17 — 'There should be a Configure Mailboxes command ... Selecting one should give them the options to remove or deactivate/activate. Deactivated mailboxes will still be saved but will not wake when emails are sent.'", "user: Andrei Li, 2026-11-17 — 'Activate/Deactivate should not be offered at the same time. Can we check the status of the mailbox and only offer the option that toggles it?'", "file: index.ts — email.mailboxes groups accounts, shows status, offers one toggle and removes them", "file: src/config.ts — AccountConfig.active and removeAccounts()", "command: npm run load-check → 'Configure Mailboxes deactivates the saved mailbox', 'only Deactivate is offered for an active mailbox', 'a deactivated mailbox does not wake', 'Configure Mailboxes activates the saved mailbox', 'only Activate is offered for a deactivated mailbox', 'activating fetches the mail that arrived while it was off', 'Configure Mailboxes removes the saved mailbox'"]
     reviewed: 2026-11-17
     last_checked: 2026-11-17
 ---

@@ -155,3 +155,23 @@
 - Orphans: 0 · raw backlog: 0
 - Contradiction checks: 8 · duplicate candidates: 0
 
+## [2026-11-17] finalize | Added Email: Configure Mailboxes: grouped saved mailboxes, activate/deactivate/remove, active:false skipping and source cleanup, removal of the last mailbox stops watching. Tests cover deactivation, activation catch-up and removal.
+- Updated: architecture/architecture-spool-and-wake.md
+- Updated: decisions/decision-no-gate-and-pointer.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 46 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 1
+
+## [2026-11-17] finalize | Configure Mailboxes now shows active, partially active or deactivated status and offers only the applicable toggle; tests assert Deactivate-only for active and Activate-only for deactivated.
+- Updated: architecture/architecture-spool-and-wake.md
+- Updated: decisions/decision-no-gate-and-pointer.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 46 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 1
+

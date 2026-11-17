@@ -84,6 +84,13 @@ claims:
     evidence: ["observation: the configured mailbox's first sync found no messages", "file: README.md — the live wake is the remaining check"]
     reviewed: 2026-11-17
     last_checked: 2026-11-17
+  - id: c10
+    text: "Mailboxes are grouped by provider, host and address for configuration. Email: Configure Mailboxes lists saved mailboxes with their status (active, partially active or deactivated) and offers only the applicable toggle: Deactivate for an active or partially active mailbox, Activate for a deactivated one, plus Remove. Deactivation sets active:false on every account in the group, keeps the config and spool, and the watcher skips the account; removal deletes the config entries and leaves stored messages on disk."
+    status: verified
+    support: 0.9
+    evidence: ["file: index.ts — email.mailboxes groups accounts, shows status, offers one toggle and removes them", "file: src/config.ts — AccountConfig.active and removeAccounts()", "command: npm run load-check → 'Configure Mailboxes deactivates the saved mailbox', 'only Deactivate is offered for an active mailbox', 'a deactivated mailbox does not wake', 'Configure Mailboxes activates the saved mailbox', 'only Activate is offered for a deactivated mailbox', 'activating fetches the mail that arrived while it was off', 'Configure Mailboxes removes the saved mailbox'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
 ---
 
 ## Shape
@@ -102,13 +109,13 @@ always-on process.
 
 | File | Owns |
 |---|---|
-| `index.ts` | The Amp plugin entry: the four commands, the poll timer, the persisted delivery mode, `deliver()`, auto-start, and the `tool.call` quarantine. |
+| `index.ts` | The Amp plugin entry: the five commands, the poll timer, the persisted delivery mode, `deliver()`, auto-start, and the `tool.call` quarantine. |
 | `src/source.ts` | A provider adapter as two calls: `listNew(cursor) → { envelopes, cursor }` and `fetch(id) → raw message`, plus an optional `close()` for a source that holds a connection. `fixtureSource` reads a directory of `.eml` files. |
 | `src/imap.ts` | The front door: a mailbox the agent owns, read over IMAP with app passwords. Cursor is `uidValidity` plus the highest UID, resets when the server rebuilds, first pass takes the newest 50, and nothing is ever marked read, moved or deleted. |
 | `src/graph.ts` | Microsoft Graph: delta on one folder bounded by `receivedDateTime ge`, paging, MIME through `$value`. See [the Graph page](microsoft-graph-source.md). |
 | `src/microsoft-auth.ts` | The device code sign-in and the token store, refreshed when close to expiring. |
 | `src/spool.ts` | The layout: raw message, `index.jsonl`, `cursor.json`, `delivered.json` per account. Store never overwrites an existing file. `withAccountLock()` serializes a whole account pass across plugin instances. |
-| `src/config.ts` | Accounts from `~/.config/amp/amp-email-listener.json`, movable with `AMP_EMAIL_LISTENER_CONFIG`; mail lives under `~/.config/amp/mail`, movable with `AMP_EMAIL_LISTENER_MAIL_DIR`. Provider-specific fields: `dir` for fixture, `clientId`/`tenant`/`mailbox`/`folder`/`since` for graph. |
+| `src/config.ts` | Accounts from `~/.config/amp/amp-email-listener.json`, movable with `AMP_EMAIL_LISTENER_CONFIG`; mail lives under `~/.config/amp/mail`, movable with `AMP_EMAIL_LISTENER_MAIL_DIR`. `active: false` keeps an account saved but skipped; `removeAccounts()` deletes entries. Provider-specific fields: `dir` for fixture, `clientId`/`tenant`/`mailbox`/`folder`/`since` for graph. |
 | `src/fetcher.ts` | One pass per account, ids in the index skipped, the provider's cursor stored, one broken account not stopping the others. Long message ids get a hashed file name. |
 | `src/wake.ts` | What is undelivered, the pointer text, and whether a message needs care. No plugin host imports: this is the half the stub test drives directly. |
 | `src/setup.ts` | The wizard as logic with the dialogs injected: what is asked, in what order, and what is verified before anything is written. |
@@ -122,6 +129,7 @@ always-on process.
 | `Email: Start Watching Mail` (`email.watch.start`) | Start polling and persist this thread as the delivery target. If polling is already on, it rebinds to this thread rather than stopping. |
 | `Email: Stop Watching Mail` (`email.watch.stop`) | Stop polling and clear the in-memory binding. |
 | `Email: Choose Delivery Target` (`email.delivery`) | Persist either this thread or a new thread per email as the delivery target. |
+| `Email: Configure Mailboxes` (`email.mailboxes`) | List saved mailboxes; activate, deactivate or remove one. Deactivation keeps it saved and stops it waking; removal deletes the config entries and leaves stored messages. |
 
 The plugin auto-starts when the config has at least one account, so the first pass after Amp starts
 fetches the backlog. `Email: Stop Watching Mail` is the explicit off switch.
@@ -137,6 +145,8 @@ fetches the backlog. `Email: Stop Watching Mail` is the explicit off switch.
   plugin follows the active thread and creates a mail thread when there is none.
 - Only one account pass runs at a time across plugin instances. A second instance that finds
   `account.lock` skips the pass instead of delivering the same index line to a second thread.
+- Deactivated accounts stay in the config with `active: false`; the watcher skips them and closes
+  their provider connections. Removing the last account stops the watcher.
 - A message is stored once. The file name derives from the provider id — hashed at the tail when the
   id is too long for a name — collisions get a suffix, and the index is append-only.
 - The wake carries a pointer, never a body
