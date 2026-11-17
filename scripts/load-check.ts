@@ -189,6 +189,10 @@ check(
 	"the delivery command is named for its action",
 	commands.get("email.delivery")?.options.title === "Choose Delivery Target",
 );
+check(
+	"the mailbox command is named for its action",
+	commands.get("email.mailboxes")?.options.title === "Configure Mailboxes",
+);
 
 // ---------------------------------------------------------------- stopping and catching up
 
@@ -308,8 +312,86 @@ await settle(300);
 check("new mode creates a new thread for the email", created === 2 && threads.get("T-2")?.messages.length === 1);
 check("the old thread does not receive it", watch.messages.length === beforeNewThread);
 
-await commands.get("email.watch.stop")!.handler(ctx);
-check("watching stops again", notices.filter((line) => line.includes("Stopped watching")).length === 3);
+// ---------------------------------------------------------------- configuring mailboxes
+
+const configPath = process.env.AMP_EMAIL_LISTENER_CONFIG!;
+let deactivateOptions: string[] = [];
+const mailboxCtx = {
+	...ctx,
+	ui: {
+		...ctx.ui,
+		select: async (title: string, options: string[]) => {
+			if (title === "Configure a mailbox") return "test (active)";
+			if (title.startsWith("Manage ")) {
+				deactivateOptions = options;
+				return "Deactivate";
+			}
+			return undefined;
+		},
+	},
+};
+await commands.get("email.mailboxes")!.handler(mailboxCtx);
+const deactivated = JSON.parse(readFileSync(configPath, "utf8")) as { accounts: { active?: boolean }[] };
+check("Configure Mailboxes deactivates the saved mailbox", deactivated.accounts[0]?.active === false);
+check(
+	"only Deactivate is offered for an active mailbox",
+	deactivateOptions.includes("Deactivate") && !deactivateOptions.includes("Activate"),
+);
+write(
+	"g.eml",
+	[
+		"From: Sam <sam@example.com>",
+		"To: andrei@example.com",
+		"Subject: while deactivated",
+		"Date: Fri, 09 Oct 2026 20:00:00 +0200",
+		"Message-ID: <g@example.com>",
+	],
+	"Keep this until the mailbox is active again.",
+);
+await settle(300);
+check("a deactivated mailbox does not wake", created === 2 && threads.get("T-2")?.messages.length === 1);
+
+let activateOptions: string[] = [];
+const activateCtx = {
+	...ctx,
+	ui: {
+		...ctx.ui,
+		select: async (title: string, options: string[]) => {
+			if (title === "Configure a mailbox") return "test (deactivated)";
+			if (title.startsWith("Manage ")) {
+				activateOptions = options;
+				return "Activate";
+			}
+			return undefined;
+		},
+	},
+};
+await commands.get("email.mailboxes")!.handler(activateCtx);
+const activated = JSON.parse(readFileSync(configPath, "utf8")) as { accounts: { active?: boolean }[] };
+check("Configure Mailboxes activates the saved mailbox", activated.accounts[0]?.active === true);
+check(
+	"only Activate is offered for a deactivated mailbox",
+	activateOptions.includes("Activate") && !activateOptions.includes("Deactivate"),
+);
+await settle(300);
+check("activating fetches the mail that arrived while it was off", created === 3 && threads.get("T-3")?.messages.length === 1);
+
+const removeCtx = {
+	...ctx,
+	ui: {
+		...ctx.ui,
+		select: async (title: string) =>
+			title === "Configure a mailbox" ? "test (active)" : title.startsWith("Manage ") ? "Remove" : undefined,
+		confirm: async () => true,
+	},
+};
+await commands.get("email.mailboxes")!.handler(removeCtx);
+const removed = JSON.parse(readFileSync(configPath, "utf8")) as { accounts: unknown[] };
+check("Configure Mailboxes removes the saved mailbox", removed.accounts.length === 0);
+check(
+	"removing the last mailbox stops watching",
+	notices.some((line) => line.includes("No mailboxes are left; watching stopped")),
+);
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exitCode = failures ? 1 : 0;

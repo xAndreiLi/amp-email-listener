@@ -10,6 +10,8 @@ import { join } from "node:path";
 export interface AccountConfig {
 	name: string;
 	provider: string;
+	/** False keeps the mailbox saved but stops it from waking the agent. */
+	active?: boolean;
 	/** fixture only: the directory of .eml files standing in for a mailbox. */
 	dir?: string;
 	/** graph only: the client id of the Entra app registration this account signs in with. */
@@ -110,6 +112,19 @@ export function saveDelivery(delivery: DeliveryConfig, path = configPath()): Con
 		...existing,
 		pollSeconds: existing.pollSeconds ?? 30,
 		delivery,
+	} as Config;
+	writeFileSync(path, `${JSON.stringify(next, null, "\t")}\n`);
+	return next;
+}
+
+/** Remove saved accounts by name, leaving every other setting alone. */
+export function removeAccounts(names: string[], path = configPath()): Config {
+	const existing = readConfigFile(path);
+	const accounts = (existing.accounts ?? []).filter((account) => !names.includes(account.name));
+	const next: Config = {
+		...existing,
+		accounts,
+		pollSeconds: existing.pollSeconds ?? 30,
 	} as Config;
 	writeFileSync(path, `${JSON.stringify(next, null, "\t")}\n`);
 	return next;

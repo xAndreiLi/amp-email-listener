@@ -15,6 +15,8 @@ import {
 	type Config,
 	type DeliveryConfig,
 	loadConfig,
+	removeAccounts,
+	saveAccount,
 	saveDelivery,
 } from "./src/config.ts";
 import { sourceFor, syncAccount } from "./src/fetcher.ts";
@@ -26,6 +28,20 @@ export const description = "Watch a mailbox and wake an Amp agent when a message
 
 /** Tools a turn triggered by a stranger's mail must not reach for. */
 const GATED_TOOLS = new Set(["shell_command", "bash", "edit_file", "create_file", "apply_patch"]);
+
+interface MailboxGroup {
+	address: string;
+	accounts: AccountConfig[];
+}
+
+type MailboxStatus = "active" | "partially active" | "deactivated";
+
+function mailboxStatus(mailbox: MailboxGroup): MailboxStatus {
+	const active = mailbox.accounts.filter((account) => account.active !== false).length;
+	if (active === 0) return "deactivated";
+	if (active === mailbox.accounts.length) return "active";
+	return "partially active";
+}
 
 export default function (amp: PluginAPI) {
 	let timer: ReturnType<typeof setInterval> | undefined;
@@ -75,6 +91,20 @@ export default function (amp: PluginAPI) {
 				log(`[${account.name}] ${(error as Error).message}`);
 			}
 			return undefined;
+		}
+	}
+
+	/** Drop the provider connections for accounts that are being deactivated or removed. */
+	async function closeSources(names: string[]): Promise<void> {
+		for (const name of names) {
+			const source = sources.get(name);
+			if (!source) continue;
+			sources.delete(name);
+			try {
+				await source.close?.();
+			} catch {
+				// A connection that is already gone needs no further cleanup.
+			}
 		}
 	}
 
@@ -144,6 +174,7 @@ export default function (amp: PluginAPI) {
 		try {
 			const config = loadConfig();
 			for (const account of config.accounts) {
+				if (account.active === false) continue;
 				const source = sourceForAccount(account);
 				if (!source) continue;
 				await withAccountLock(account.name, async () => {
@@ -337,6 +368,77 @@ export default function (amp: PluginAPI) {
 				if (timer) notify("Each new email will start a new thread.");
 			} catch (error) {
 				notify(`Could not save the delivery target: ${(error as Error).message}`);
+			}
+		},
+	);
+
+	amp.registerCommand(
+		"email.mailboxes",
+		{
+			title: "Configure Mailboxes",
+			category: "Email",
+			description: "Activate, deactivate or remove saved mailboxes.",
+		},
+		async (ctx) => {
+			const notify = (message: string) => void ctx.ui.notify(message);
+			let config: Config;
+			try {
+				config = loadConfig();
+			} catch (error) {
+				notify((error as Error).message);
+				return;
+			}
+			const groups = new Map<string, AccountConfig[]>();
+			for (const account of config.accounts) {
+				const address = account.user ?? account.mailbox ?? account.name;
+				const key = `${account.provider}|${account.host ?? ""}|${address}`;
+				groups.set(key, [...(groups.get(key) ?? []), account]);
+			}
+			const mailboxes: MailboxGroup[] = [...groups.values()].map((accounts) => ({
+				address: accounts[0].user ?? accounts[0].mailbox ?? accounts[0].name,
+				accounts,
+			}));
+			const label = (mailbox: MailboxGroup) => `${mailbox.address} (${mailboxStatus(mailbox)})`;
+			const selected = await ctx.ui.select("Configure a mailbox", mailboxes.map(label));
+			if (!selected) return;
+			const mailbox = mailboxes.find((candidate) => label(candidate) === selected);
+			if (!mailbox) return;
+			const status = mailboxStatus(mailbox);
+			const action = await ctx.ui.select(
+				`Manage ${mailbox.address} (${status})`,
+				status === "deactivated" ? ["Activate", "Remove", "Cancel"] : ["Deactivate", "Remove", "Cancel"],
+			);
+			if (!action || action === "Cancel") return;
+			try {
+				if (action === "Deactivate") {
+					for (const account of mailbox.accounts) saveAccount({ ...account, active: false });
+					await closeSources(mailbox.accounts.map((account) => account.name));
+					notify(`${mailbox.address} is deactivated. It stays saved and will not wake the agent.`);
+					return;
+				}
+				if (action === "Activate") {
+					for (const account of mailbox.accounts) saveAccount({ ...account, active: true });
+					notify(`${mailbox.address} is active again.`);
+					return;
+				}
+				if (action === "Remove") {
+					const confirmed = await ctx.ui.confirm(
+						`Remove ${mailbox.address}?`,
+						"This removes the saved mailbox from the config. Messages already stored on disk stay there.",
+					);
+					if (!confirmed) return;
+					removeAccounts(mailbox.accounts.map((account) => account.name));
+					await closeSources(mailbox.accounts.map((account) => account.name));
+					try {
+						loadConfig();
+						notify(`${mailbox.address} was removed.`);
+					} catch {
+						await stop();
+						notify(`${mailbox.address} was removed. No mailboxes are left; watching stopped.`);
+					}
+				}
+			} catch (error) {
+				notify(`Could not update the mailbox: ${(error as Error).message}`);
 			}
 		},
 	);

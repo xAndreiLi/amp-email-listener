@@ -107,6 +107,18 @@ function saveDelivery(delivery, path = configPath()) {
 `);
   return next;
 }
+function removeAccounts(names, path = configPath()) {
+  const existing = readConfigFile(path);
+  const accounts = (existing.accounts ?? []).filter((account) => !names.includes(account.name));
+  const next = {
+    ...existing,
+    accounts,
+    pollSeconds: existing.pollSeconds ?? 30
+  };
+  writeFileSync(path, `${JSON.stringify(next, null, "\t")}
+`);
+  return next;
+}
 var init_config = () => {};
 
 // node_modules/pino-std-serializers/lib/err-helpers.js
@@ -42250,6 +42262,14 @@ function bodyOf2(raw) {
 // index.ts
 var description = "Watch a mailbox and wake an Amp agent when a message arrives.";
 var GATED_TOOLS = new Set(["shell_command", "bash", "edit_file", "create_file", "apply_patch"]);
+function mailboxStatus(mailbox) {
+  const active = mailbox.accounts.filter((account) => account.active !== false).length;
+  if (active === 0)
+    return "deactivated";
+  if (active === mailbox.accounts.length)
+    return "active";
+  return "partially active";
+}
 function pi_email_listener_default(amp) {
   let timer;
   let busy = false;
@@ -42289,6 +42309,17 @@ function pi_email_listener_default(amp) {
         log(`[${account.name}] ${error.message}`);
       }
       return;
+    }
+  }
+  async function closeSources(names2) {
+    for (const name2 of names2) {
+      const source = sources.get(name2);
+      if (!source)
+        continue;
+      sources.delete(name2);
+      try {
+        await source.close?.();
+      } catch {}
     }
   }
   async function deliver(text, care) {
@@ -42352,6 +42383,8 @@ function pi_email_listener_default(amp) {
     try {
       const config = loadConfig();
       for (const account of config.accounts) {
+        if (account.active === false)
+          continue;
         const source = sourceForAccount(account);
         if (!source)
           continue;
@@ -42525,6 +42558,72 @@ function pi_email_listener_default(amp) {
         notify("Each new email will start a new thread.");
     } catch (error) {
       notify(`Could not save the delivery target: ${error.message}`);
+    }
+  });
+  amp.registerCommand("email.mailboxes", {
+    title: "Configure Mailboxes",
+    category: "Email",
+    description: "Activate, deactivate or remove saved mailboxes."
+  }, async (ctx) => {
+    const notify = (message) => void ctx.ui.notify(message);
+    let config;
+    try {
+      config = loadConfig();
+    } catch (error) {
+      notify(error.message);
+      return;
+    }
+    const groups = new Map;
+    for (const account of config.accounts) {
+      const address = account.user ?? account.mailbox ?? account.name;
+      const key = `${account.provider}|${account.host ?? ""}|${address}`;
+      groups.set(key, [...groups.get(key) ?? [], account]);
+    }
+    const mailboxes = [...groups.values()].map((accounts) => ({
+      address: accounts[0].user ?? accounts[0].mailbox ?? accounts[0].name,
+      accounts
+    }));
+    const label = (mailbox2) => `${mailbox2.address} (${mailboxStatus(mailbox2)})`;
+    const selected = await ctx.ui.select("Configure a mailbox", mailboxes.map(label));
+    if (!selected)
+      return;
+    const mailbox = mailboxes.find((candidate) => label(candidate) === selected);
+    if (!mailbox)
+      return;
+    const status2 = mailboxStatus(mailbox);
+    const action = await ctx.ui.select(`Manage ${mailbox.address} (${status2})`, status2 === "deactivated" ? ["Activate", "Remove", "Cancel"] : ["Deactivate", "Remove", "Cancel"]);
+    if (!action || action === "Cancel")
+      return;
+    try {
+      if (action === "Deactivate") {
+        for (const account of mailbox.accounts)
+          saveAccount({ ...account, active: false });
+        await closeSources(mailbox.accounts.map((account) => account.name));
+        notify(`${mailbox.address} is deactivated. It stays saved and will not wake the agent.`);
+        return;
+      }
+      if (action === "Activate") {
+        for (const account of mailbox.accounts)
+          saveAccount({ ...account, active: true });
+        notify(`${mailbox.address} is active again.`);
+        return;
+      }
+      if (action === "Remove") {
+        const confirmed = await ctx.ui.confirm(`Remove ${mailbox.address}?`, "This removes the saved mailbox from the config. Messages already stored on disk stay there.");
+        if (!confirmed)
+          return;
+        removeAccounts(mailbox.accounts.map((account) => account.name));
+        await closeSources(mailbox.accounts.map((account) => account.name));
+        try {
+          loadConfig();
+          notify(`${mailbox.address} was removed.`);
+        } catch {
+          await stop();
+          notify(`${mailbox.address} was removed. No mailboxes are left; watching stopped.`);
+        }
+      }
+    } catch (error) {
+      notify(`Could not update the mailbox: ${error.message}`);
     }
   });
   amp.registerCommand("email.setup", {
