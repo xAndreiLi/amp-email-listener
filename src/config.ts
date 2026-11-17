@@ -31,9 +31,18 @@ export interface AccountConfig {
 	passwordEnv?: string;
 }
 
+export type DeliveryMode = "thread" | "new";
+
+export interface DeliveryConfig {
+	mode: DeliveryMode;
+	/** When mode is "thread", the thread new mail should wake. */
+	threadId?: string;
+}
+
 export interface Config {
 	accounts: AccountConfig[];
 	pollSeconds: number;
+	delivery?: DeliveryConfig;
 }
 
 /**
@@ -62,7 +71,10 @@ export function loadConfig(path = configPath()): Config {
 			throw new Error(`every account in ${path} needs a "name" and a "provider"`);
 		}
 	}
-	return { accounts: parsed.accounts, pollSeconds: parsed.pollSeconds ?? 30 };
+	if (parsed.delivery && parsed.delivery.mode !== "thread" && parsed.delivery.mode !== "new") {
+		throw new Error(`${path}: delivery.mode must be "thread" or "new"`);
+	}
+	return { accounts: parsed.accounts, pollSeconds: parsed.pollSeconds ?? 30, delivery: parsed.delivery };
 }
 
 /** The file as written, or nothing when there is not one yet — never throws. */
@@ -86,6 +98,18 @@ export function saveAccount(account: AccountConfig, path = configPath()): Config
 		...existing,
 		accounts,
 		pollSeconds: existing.pollSeconds ?? 30,
+	} as Config;
+	writeFileSync(path, `${JSON.stringify(next, null, "\t")}\n`);
+	return next;
+}
+
+/** Persist where new mail should go, leaving accounts and unknown settings alone. */
+export function saveDelivery(delivery: DeliveryConfig, path = configPath()): Config {
+	const existing = readConfigFile(path);
+	const next: Config = {
+		...existing,
+		pollSeconds: existing.pollSeconds ?? 30,
+		delivery,
 	} as Config;
 	writeFileSync(path, `${JSON.stringify(next, null, "\t")}\n`);
 	return next;

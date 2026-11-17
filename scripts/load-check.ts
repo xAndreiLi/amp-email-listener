@@ -8,7 +8,7 @@
  * thread the user chose, and what the quarantine blocks. It cannot prove that Amp accepts the wake.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -185,6 +185,10 @@ check(
 	commands.get("email.watch.start")?.options.title === "Start Watching Mail" &&
 		commands.get("email.watch.stop")?.options.title === "Stop Watching Mail",
 );
+check(
+	"the delivery command is named for its action",
+	commands.get("email.delivery")?.options.title === "Choose Delivery Target",
+);
 
 // ---------------------------------------------------------------- stopping and catching up
 
@@ -273,6 +277,36 @@ check(
 );
 await fire("agent.end", { thread: { id: "T-watch" }, status: "done" });
 check("and comes back when its own turn ends", (await toolCall("T-watch", "shell_command"))?.action === "allow");
+
+// ---------------------------------------------------------------- delivery target
+
+const deliveryCtx = {
+	...ctx,
+	ui: {
+		...ctx.ui,
+		select: async () => "A new thread for each email",
+	},
+};
+await commands.get("email.delivery")!.handler(deliveryCtx);
+const saved = JSON.parse(readFileSync(process.env.AMP_EMAIL_LISTENER_CONFIG!, "utf8")) as {
+	delivery?: { mode?: string };
+};
+check("the delivery target is persisted", saved.delivery?.mode === "new");
+const beforeNewThread = watch.messages.length;
+write(
+	"f.eml",
+	[
+		"From: Sam <sam@example.com>",
+		"To: andrei@example.com",
+		"Subject: new thread",
+		"Date: Fri, 09 Oct 2026 19:00:00 +0200",
+		"Message-ID: <f@example.com>",
+	],
+	"Start a new thread for this one.",
+);
+await settle(300);
+check("new mode creates a new thread for the email", created === 2 && threads.get("T-2")?.messages.length === 1);
+check("the old thread does not receive it", watch.messages.length === beforeNewThread);
 
 await commands.get("email.watch.stop")!.handler(ctx);
 check("watching stops again", notices.filter((line) => line.includes("Stopped watching")).length === 3);

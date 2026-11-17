@@ -18,7 +18,7 @@ const maildir = join(root, "fixtures");
 mkdirSync(maildir);
 
 const { syncAccount } = await import("../src/fetcher.ts");
-const { accountDir, mailRoot, readCursor, readIndex } = await import("../src/spool.ts");
+const { accountDir, mailRoot, readCursor, readIndex, withAccountLock } = await import("../src/spool.ts");
 const { ampDir, configPath } = await import("../src/config.ts");
 
 let failures = 0;
@@ -122,6 +122,24 @@ check("the cursor moved on", (readCursor("test")?.lastSeenAt as string) === "202
 const ids = readIndex("test").map((m) => m.file);
 check("every stored file exists under its own name", new Set(ids).size === 3);
 check("a Message-ID became a file name without a path escaping", ids[0] === "a-example.com.eml");
+
+const lockEvents: string[] = [];
+const firstLock = withAccountLock("test", async () => {
+	lockEvents.push("first-start");
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	lockEvents.push("first-end");
+	return "first";
+});
+const secondLock = withAccountLock("test", async () => {
+	lockEvents.push("second");
+	return "second";
+});
+const [firstLockResult, secondLockResult] = await Promise.all([firstLock, secondLock]);
+check(
+	"only one account pass holds the lock",
+	firstLockResult === "first" && secondLockResult === undefined && lockEvents.join(",") === "first-start,first-end",
+);
+check("the account lock is released", (await withAccountLock("test", async () => "third")) === "third");
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exitCode = failures ? 1 : 0;

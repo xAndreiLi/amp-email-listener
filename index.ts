@@ -10,9 +10,16 @@
  */
 
 import type { PluginAPI, PluginCommandContext, PluginThread, ThreadID } from "@ampcode/plugin";
-import { type AccountConfig, type Config, loadConfig } from "./src/config.ts";
+import {
+	type AccountConfig,
+	type Config,
+	type DeliveryConfig,
+	loadConfig,
+	saveDelivery,
+} from "./src/config.ts";
 import { sourceFor, syncAccount } from "./src/fetcher.ts";
 import type { MailSource } from "./src/source.ts";
+import { withAccountLock } from "./src/spool.ts";
 import { markDelivered, needsCare, pointer, readRaw, undelivered } from "./src/wake.ts";
 
 export const description = "Watch a mailbox and wake an Amp agent when a message arrives.";
@@ -24,7 +31,8 @@ export default function (amp: PluginAPI) {
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let busy = false;
 	let complained = false;
-	/** The thread Start Watching Mail was run in, if any. Mail prefers it over whatever is focused later. */
+	let deliveryMode: DeliveryConfig["mode"] = "thread";
+	/** The configured thread for new mail, from Start Watching Mail or the config. */
 	let watchThreadId: ThreadID | undefined;
 	/** The thread mail is appended to when no watch or active thread exists. */
 	let mailThreadId: ThreadID | undefined;
@@ -84,6 +92,10 @@ export default function (amp: PluginAPI) {
 				throw error;
 			}
 		};
+		if (deliveryMode === "new") {
+			const thread = await amp.getBuiltinAgent("medium").createThread({ show: true });
+			return await append(thread);
+		}
 		if (watchThreadId) {
 			try {
 				return await append(amp.threads.get(watchThreadId));
@@ -134,39 +146,41 @@ export default function (amp: PluginAPI) {
 			for (const account of config.accounts) {
 				const source = sourceForAccount(account);
 				if (!source) continue;
-				try {
-					// The cursor lives with the spool, so the first pass after Amp was off fetches the
-					// whole backlog rather than only what arrives from now on.
-					await syncAccount(account, source, log);
-				} catch (error) {
-					if (!complained) {
-						complained = true;
-						log(`[${account.name}] ${(error as Error).message}`);
-					}
-				}
-				for (const pending of undelivered(account.name)) {
-					let text: string;
-					let raw: string;
+				await withAccountLock(account.name, async () => {
 					try {
-						raw = readRaw(account.name, pending.message);
-						text = pointer(account.name, pending.message, raw);
-					} catch (error) {
-						// The index points at a file that is not there. Marking it delivered stops a
-						// poison entry from wedging the watcher on every poll; the user is told.
-						log(`[${account.name}] ${(error as Error).message}`);
-						markDelivered(account.name, pending.line);
-						continue;
-					}
-					try {
-						await deliver(text, needsCare(raw));
-						markDelivered(account.name, pending.line);
+						// The cursor lives with the spool, so the first pass after Amp was off fetches the
+						// whole backlog rather than only what arrives from now on.
+						await syncAccount(account, source, log);
 					} catch (error) {
 						if (!complained) {
 							complained = true;
-							log(`could not wake an agent for ${account.name}: ${(error as Error).message}`);
+							log(`[${account.name}] ${(error as Error).message}`);
 						}
 					}
-				}
+					for (const pending of undelivered(account.name)) {
+						let text: string;
+						let raw: string;
+						try {
+							raw = readRaw(account.name, pending.message);
+							text = pointer(account.name, pending.message, raw);
+						} catch (error) {
+							// The index points at a file that is not there. Marking it delivered stops a
+							// poison entry from wedging the watcher on every poll; the user is told.
+							log(`[${account.name}] ${(error as Error).message}`);
+							markDelivered(account.name, pending.line);
+							continue;
+						}
+						try {
+							await deliver(text, needsCare(raw));
+							markDelivered(account.name, pending.line);
+						} catch (error) {
+							if (!complained) {
+								complained = true;
+								log(`could not wake an agent for ${account.name}: ${(error as Error).message}`);
+							}
+						}
+					}
+				});
 			}
 		} catch (error) {
 			if (!complained) {
@@ -190,7 +204,11 @@ export default function (amp: PluginAPI) {
 			return;
 		}
 		complained = false;
-		watchThreadId = threadId;
+		deliveryMode = config.delivery?.mode ?? "thread";
+		watchThreadId =
+			deliveryMode === "thread"
+				? ((config.delivery?.threadId as ThreadID | undefined) ?? threadId)
+				: undefined;
 		const pollMs = Number(process.env.AMP_EMAIL_LISTENER_POLL_MS ?? config.pollSeconds * 1000);
 		timer = setInterval(() => void tick(), pollMs);
 		const message = `Watching mail every ${Math.round(pollMs / 1000)}s.`;
@@ -240,12 +258,21 @@ export default function (amp: PluginAPI) {
 		async (ctx) => {
 			const notify = (message: string) => void ctx.ui.notify(message);
 			const threadId = ctx.thread?.id;
+			if (threadId) {
+				try {
+					saveDelivery({ mode: "thread", threadId });
+				} catch (error) {
+					notify(`Could not save the delivery target: ${(error as Error).message}`);
+					return;
+				}
+			}
 			if (timer) {
-				if (threadId && watchThreadId !== threadId) {
+				if (threadId) {
+					const already = watchThreadId === threadId;
+					deliveryMode = "thread";
 					watchThreadId = threadId;
-					notify("Watching mail in this thread.");
-				} else if (threadId) {
-					notify("Already watching mail in this thread.");
+					mailThreadId = undefined;
+					notify(already ? "Already watching mail in this thread." : "Watching mail in this thread.");
 				} else {
 					notify("Already watching mail.");
 				}
@@ -270,6 +297,47 @@ export default function (amp: PluginAPI) {
 			}
 			await stop();
 			notify("Stopped watching mail.");
+		},
+	);
+
+	amp.registerCommand(
+		"email.delivery",
+		{
+			title: "Choose Delivery Target",
+			category: "Email",
+			description: "Choose whether new mail wakes this thread or starts a new thread for each email.",
+		},
+		async (ctx) => {
+			const notify = (message: string) => void ctx.ui.notify(message);
+			const choice = await ctx.ui.select("Where should new mail go?", [
+				"This thread",
+				"A new thread for each email",
+			]);
+			if (!choice) return;
+			try {
+				if (choice === "This thread") {
+					const threadId = ctx.thread?.id;
+					if (!threadId) {
+						notify("Open the thread that should receive mail, then run this again.");
+						return;
+					}
+					saveDelivery({ mode: "thread", threadId });
+					deliveryMode = "thread";
+					watchThreadId = threadId;
+					mailThreadId = undefined;
+					if (!timer) await start(notify, threadId);
+					if (timer) notify("New mail will wake this thread.");
+					return;
+				}
+				saveDelivery({ mode: "new" });
+				deliveryMode = "new";
+				watchThreadId = undefined;
+				mailThreadId = undefined;
+				if (!timer) await start(notify);
+				if (timer) notify("Each new email will start a new thread.");
+			} catch (error) {
+				notify(`Could not save the delivery target: ${(error as Error).message}`);
+			}
 		},
 	);
 

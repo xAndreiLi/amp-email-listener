@@ -44,7 +44,8 @@ amp clone user-plugins
 2. Ask someone to cc the agent, or forward it a message.
 
 3. The plugin starts fetching as soon as a mailbox is configured. **Email: Start Watching Mail**
-   binds delivery to this thread; **Email: Stop Watching Mail** stops polling. Mail that arrived
+   binds delivery to this thread; **Email: Stop Watching Mail** stops polling. **Email: Choose
+   Delivery Target** switches between this thread and a new thread for each email. Mail that arrived
    while Amp was off is fetched on the next start.
 
 ## Commands
@@ -54,6 +55,7 @@ amp clone user-plugins
 | `Email: Set up a mailbox` (`/email.setup`) | Connect a mailbox |
 | `Email: Start Watching Mail` (`/email.watch.start`) | Start watching mail and deliver it to this thread |
 | `Email: Stop Watching Mail` (`/email.watch.stop`) | Stop watching mail |
+| `Email: Choose Delivery Target` (`/email.delivery`) | Deliver to this thread, or start a new thread for each email |
 
 The plugin fetches mail while Amp is running. There is no always-on service: when Amp starts, the
 first pass reads each mailbox from its saved cursor, so missed mail is fetched and wakes the agent
@@ -65,6 +67,10 @@ then. The agent never sends mail.
 `$XDG_CONFIG_HOME/amp/amp-email-listener.json` when that variable is set. Edit the file by hand to
 add accounts or change settings; mail is never marked read, moved, or deleted.
 `AMP_EMAIL_LISTENER_CONFIG` and `AMP_EMAIL_LISTENER_MAIL_DIR` override the two paths.
+
+`delivery` controls where new mail goes. `{ "mode": "thread", "threadId": "T-..." }` sends it to
+that thread; `{ "mode": "new" }` starts a fresh thread for every email. **Email: Choose Delivery
+Target** writes the setting, and **Email: Start Watching Mail** records the current thread.
 
 ## Remove
 

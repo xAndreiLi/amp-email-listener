@@ -10,7 +10,17 @@
  * Nothing here needs a session; the plugin writes here while Amp runs.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { ampDir } from "./config.ts";
 import type { Cursor } from "./source.ts";
@@ -42,6 +52,42 @@ export function accountDir(account: string): string {
 	const dir = join(mailRoot(), account);
 	mkdirSync(dir, { recursive: true });
 	return dir;
+}
+
+/** A stale holder is assumed dead; five minutes is longer than any delivery should take. */
+const ACCOUNT_LOCK_STALE_MS = 5 * 60 * 1000;
+
+/**
+ * Serialize a whole account pass across every Amp thread that loaded the plugin. Without this, two
+ * auto-started copies can read the same undelivered line and wake two threads for one message.
+ */
+export async function withAccountLock<T>(account: string, work: () => Promise<T>): Promise<T | undefined> {
+	const file = join(accountDir(account), "account.lock");
+	let handle: number;
+	try {
+		handle = openSync(file, "wx");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+		try {
+			if (Date.now() - statSync(file).mtimeMs > ACCOUNT_LOCK_STALE_MS) {
+				unlinkSync(file);
+				return await withAccountLock(account, work);
+			}
+		} catch {
+			// The holder may have released the lock between the failed open and the stat.
+		}
+		return undefined;
+	}
+	closeSync(handle);
+	try {
+		return await work();
+	} finally {
+		try {
+			unlinkSync(file);
+		} catch {
+			// Already gone; nothing to release.
+		}
+	}
 }
 
 /** Write the raw message and its index line. Never overwrites a file that is already there. */
