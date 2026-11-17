@@ -202,3 +202,12 @@
 - Orphans: 0 · raw backlog: 0
 - Contradiction checks: 8 · duplicate candidates: 1
 
+## [2026-11-17] finalize | A NOOP before each search plus a stale-view check: an empty search while the mailbox reports more messages than the cursor reconnects and retries.
+- Updated: architecture/architecture-spool-and-wake.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 46 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 1
+
