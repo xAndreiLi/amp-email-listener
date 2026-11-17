@@ -27,6 +27,8 @@ export interface ImapClient {
 	fetchAll(range: string, query: { uid: true; source: true }): Promise<{ uid: number; source?: Buffer }[]>;
 	fetchOne(seq: string, query: { uid: true; source: true }, options: { uid: true }): Promise<{ uid: number; source?: Buffer } | false | undefined>;
 	logout(): Promise<void>;
+	/** Flush pending mailbox updates; a cheap liveness check before a search. */
+	noop?(): Promise<void>;
 	/** Drop the socket without waiting for a server goodbye. */
 	close?(): void;
 	/** A connection that dies between commands reports it here, not through a pending call. */
@@ -153,9 +155,16 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 
 				let uids: number[];
 				if (resuming) {
+					// A long-lived connection can stop seeing new messages even while it still
+					// answers. A NOOP flushes the server's pending updates and fails loudly if the
+					// socket is gone, so the check below can trust `exists`.
+					await imap.noop?.();
 					const found = (await imap.search({ uid: `${(previous.lastUid as number) + 1}:*` }, { uid: true })) || [];
 					// `n:*` includes the highest message even when it is below n, so it comes back out.
 					uids = found.filter((uid) => uid > (previous.lastUid as number));
+					if (uids.length === 0 && highest > (previous.lastUid as number) && !retried) {
+						throw new RetryOnFreshConnection(`${account} reports ${highest} messages but the search saw none`);
+					}
 				} else if (options.since) {
 					const found = (await imap.search({ since: new Date(options.since), uid: "1:*" }, { uid: true })) || [];
 					uids = found.filter((uid) => uid > 0);

@@ -47,6 +47,7 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 	let loggedOut = false;
 	const errorListeners: ((error: Error) => void)[] = [];
 	const hidden = new Set<number>();
+	let blind = false;
 	const client = {
 		failNext: 0,
 		mailbox: { uidValidity, exists: messages.length },
@@ -64,10 +65,14 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 		async search(query: Record<string, unknown>, _options: { uid: true }) {
 			const range = String(query.uid ?? "");
 			calls.push(`search:${range}`);
+			if (blind) return [];
 			const from = Number(range.split(":")[0]);
 			// IMAP semantics: `n:*` always returns the highest message, even when it is below n.
 			const found = messages.map((one) => one.uid).filter((uid) => uid >= from);
 			return found.length ? found : [messages.at(-1)?.uid ?? 0];
+		},
+		async noop() {
+			calls.push("noop");
 		},
 		async fetchAll(range: string, _query: unknown) {
 			calls.push(`fetchAll:${range}`);
@@ -105,6 +110,9 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 		emitError: (error: Error) => errorListeners.forEach((listener) => listener(error)),
 		hide: (uid: number) => hidden.add(uid),
 		unhide: (uid: number) => hidden.delete(uid),
+		blind: () => {
+			blind = true;
+		},
 	};
 }
 
@@ -210,6 +218,31 @@ check("a UID that is listed but not handed over is retried on a fresh connection
 check("which took two connections", connects === 2);
 check("and the dead connection was logged out", emptyFirst.loggedOut());
 check("the cursor moves once the message is stored", readCursor("retry")?.lastUid === 2);
+
+// ---------------------------------------------------------------- a connection that stops seeing new mail
+
+// A long-lived connection can keep answering while its view goes stale. The mailbox count is
+// ahead of the cursor, so the pass reconnects and retries instead of reporting no mail.
+const blindFirst = stubServer([
+	{ uid: 1, source: raw("Already read") },
+	{ uid: 2, source: raw("Hidden by a stale view") },
+]);
+const blindSecond = stubServer([
+	{ uid: 1, source: raw("Already read") },
+	{ uid: 2, source: raw("Hidden by a stale view") },
+]);
+blindFirst.blind();
+let blindConnects = 0;
+const blindSource = imapSource("blind", {
+	host: "imap.example.com",
+	user: "agent@example.com",
+	password: "app-password",
+	connect: () => (blindConnects++ === 0 ? blindFirst.client : blindSecond.client) as never,
+});
+writeCursor("blind", { uidValidity: "7", lastUid: 1 });
+check("a search that sees nothing while the mailbox reports more is retried", (await syncAccount({ ...account, name: "blind" }, blindSource)) === 1);
+check("which took two connections", blindConnects === 2);
+check("and the cursor moves once the message is stored", readCursor("blind")?.lastUid === 2);
 
 // ---------------------------------------------------------------- reading a forwarded message
 

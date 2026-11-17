@@ -41686,8 +41686,12 @@ function imapSource(account, options) {
         const resuming = previous?.uidValidity === uidValidity && typeof previous.lastUid === "number";
         let uids;
         if (resuming) {
+          await imap.noop?.();
           const found = await imap.search({ uid: `${previous.lastUid + 1}:*` }, { uid: true }) || [];
           uids = found.filter((uid) => uid > previous.lastUid);
+          if (uids.length === 0 && highest > previous.lastUid && !retried) {
+            throw new RetryOnFreshConnection(`${account} reports ${highest} messages but the search saw none`);
+          }
         } else if (options.since) {
           const found = await imap.search({ since: new Date(options.since), uid: "1:*" }, { uid: true }) || [];
           uids = found.filter((uid) => uid > 0);
