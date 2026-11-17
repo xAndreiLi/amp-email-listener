@@ -48,6 +48,9 @@ export interface ImapOptions {
 /** A mailbox belongs to a person, not to us: on a first run, take the newest, never the lot. */
 const FIRST_PASS_MESSAGES = 50;
 
+/** A UID the server listed but would not hand over; worth one retry on a fresh connection. */
+class RetryOnFreshConnection extends Error {}
+
 interface CursorShape {
 	uidValidity?: string;
 	lastUid?: number;
@@ -106,12 +109,14 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 		return fresh;
 	}
 
-	async function withMailbox<T>(work: (imap: ImapClient) => Promise<T>): Promise<T> {
+	async function withMailbox<T>(work: (imap: ImapClient, retried: boolean) => Promise<T>, retried = false): Promise<T> {
 		const imap = await connected();
 		const lock = await imap.getMailboxLock(options.mailbox ?? "INBOX");
+		let failure: unknown;
 		try {
-			return await work(imap);
+			return await work(imap, retried);
 		} catch (error) {
+			failure = error;
 			// A dropped connection looks like any other failure from here, and keeping the dead client
 			// would fail every later pass until the process restarted. Drop it so the next pass
 			// reconnects, and let the caller see what happened.
@@ -123,7 +128,6 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 			} catch {
 				// The connection is already gone.
 			}
-			throw error;
 		} finally {
 			try {
 				lock.release();
@@ -131,11 +135,17 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 				// The connection is gone; there is nothing left to release.
 			}
 		}
+		// A connection can answer a search and then fail to hand over the message it just listed.
+		// Retry once on a fresh connection before leaving the UID for the next pass.
+		if (failure instanceof RetryOnFreshConnection && !retried) {
+			return withMailbox(work, true);
+		}
+		throw failure;
 	}
 
 	return {
 		async listNew(cursor: Cursor | undefined) {
-			return withMailbox(async (imap) => {
+			return withMailbox(async (imap, retried) => {
 				const uidValidity = String(imap.mailbox?.uidValidity ?? "");
 				const highest = Number(imap.mailbox?.exists ?? 0);
 				const previous = cursor as CursorShape | undefined;
@@ -173,6 +183,7 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 					}
 					const message = await imap.fetchOne(String(uid), { uid: true, source: true }, { uid: true });
 					if (!message?.source) {
+						if (!retried) throw new RetryOnFreshConnection(`uid ${uid} was listed but not handed over`);
 						gap = true;
 						continue;
 					}

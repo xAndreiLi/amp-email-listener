@@ -41651,12 +41651,14 @@ function imapSource(account, options) {
     });
     return fresh;
   }
-  async function withMailbox(work) {
+  async function withMailbox(work, retried = false) {
     const imap = await connected();
     const lock = await imap.getMailboxLock(options.mailbox ?? "INBOX");
+    let failure;
     try {
-      return await work(imap);
+      return await work(imap, retried);
     } catch (error) {
+      failure = error;
       if (client === imap)
         client = undefined;
       try {
@@ -41665,16 +41667,19 @@ function imapSource(account, options) {
         else
           imap.logout().catch(() => {});
       } catch {}
-      throw error;
     } finally {
       try {
         lock.release();
       } catch {}
     }
+    if (failure instanceof RetryOnFreshConnection && !retried) {
+      return withMailbox(work, true);
+    }
+    throw failure;
   }
   return {
     async listNew(cursor) {
-      return withMailbox(async (imap) => {
+      return withMailbox(async (imap, retried) => {
         const uidValidity = String(imap.mailbox?.uidValidity ?? "");
         const highest = Number(imap.mailbox?.exists ?? 0);
         const previous = cursor;
@@ -41708,6 +41713,8 @@ function imapSource(account, options) {
           }
           const message = await imap.fetchOne(String(uid), { uid: true, source: true }, { uid: true });
           if (!message?.source) {
+            if (!retried)
+              throw new RetryOnFreshConnection(`uid ${uid} was listed but not handed over`);
             gap = true;
             continue;
           }
@@ -41751,10 +41758,12 @@ function imapSource(account, options) {
     }
   };
 }
-var FIRST_PASS_MESSAGES = 50;
+var FIRST_PASS_MESSAGES = 50, RetryOnFreshConnection;
 var init_imap = __esm(() => {
   init_imap_flow();
   init_source();
+  RetryOnFreshConnection = class RetryOnFreshConnection extends Error {
+  };
 });
 
 // src/setup.ts

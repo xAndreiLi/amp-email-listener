@@ -80,7 +80,7 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 		},
 		async fetchOne(seq: string, _query: unknown, _options: unknown) {
 			calls.push(`fetchOne:${seq}`);
-			if (hidden.delete(Number(seq))) return false;
+			if (hidden.has(Number(seq))) return false;
 			const found = messages.find((one) => String(one.uid) === String(seq));
 			return found ? { uid: found.uid, source: Buffer.from(found.source) } : false;
 		},
@@ -104,6 +104,7 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 		loggedOut: () => loggedOut,
 		emitError: (error: Error) => errorListeners.forEach((listener) => listener(error)),
 		hide: (uid: number) => hidden.add(uid),
+		unhide: (uid: number) => hidden.delete(uid),
 	};
 }
 
@@ -180,8 +181,35 @@ writeCursor("gap", { uidValidity: "7", lastUid: 1 });
 gap.hide(2);
 check("a uid the server will not hand over stores nothing", (await syncAccount({ ...account, name: "gap" }, gapSource)) === 0);
 check("and the cursor stays before it", readCursor("gap")?.lastUid === 1);
+gap.unhide(2);
 check("the next pass retries it", (await syncAccount({ ...account, name: "gap" }, gapSource)) === 1);
 check("and only then moves the cursor", readCursor("gap")?.lastUid === 2);
+
+// ---------------------------------------------------------------- a fetch that comes back empty
+
+// A connection can list a UID and then fail to hand it over. One retry on a fresh connection
+// stores the message instead of leaving it for a later pass.
+const emptyFirst = stubServer([
+	{ uid: 1, source: raw("Already read") },
+	{ uid: 2, source: raw("Second try") },
+]);
+const emptySecond = stubServer([
+	{ uid: 1, source: raw("Already read") },
+	{ uid: 2, source: raw("Second try") },
+]);
+emptyFirst.hide(2);
+let connects = 0;
+const retrySource = imapSource("retry", {
+	host: "imap.example.com",
+	user: "agent@example.com",
+	password: "app-password",
+	connect: () => (connects++ === 0 ? emptyFirst.client : emptySecond.client) as never,
+});
+writeCursor("retry", { uidValidity: "7", lastUid: 1 });
+check("a UID that is listed but not handed over is retried on a fresh connection", (await syncAccount({ ...account, name: "retry" }, retrySource)) === 1);
+check("which took two connections", connects === 2);
+check("and the dead connection was logged out", emptyFirst.loggedOut());
+check("the cursor moves once the message is stored", readCursor("retry")?.lastUid === 2);
 
 // ---------------------------------------------------------------- reading a forwarded message
 
