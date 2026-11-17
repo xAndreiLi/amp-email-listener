@@ -145,3 +145,13 @@
 - Orphans: 0 · raw backlog: 0
 - Contradiction checks: 8 · duplicate candidates: 0
 
+## [2026-11-17] finalize | Delivery is now a persisted user setting: existing thread or a new thread per email via Email: Choose Delivery Target. An account lock serializes sync and delivery across plugin instances so one message wakes one thread. Tests cover the lock, persisted mode and new-thread mode.
+- Updated: architecture/architecture-spool-and-wake.md
+- Updated: decisions/decision-no-gate-and-pointer.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 44 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 0
+

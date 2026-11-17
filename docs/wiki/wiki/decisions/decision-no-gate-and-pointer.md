@@ -2,7 +2,7 @@
 title: "No gate, a pointer not a digest, and watching while Amp runs"
 type: decision
 topic: decisions
-summary: "amp-email-listener turns the agent for every message — no relevance gate, no batching, no suppression rules — and the wake carries the sender, the subject and a file path rather than the body. The plugin starts watching when it loads with a configured mailbox; Email: Start Watching Mail binds delivery to a thread and Email: Stop Watching Mail stops polling. A message with a link or attachment turns the agent with shell, edit and write blocked until the turn ends."
+summary: "amp-email-listener turns the agent for every message — no relevance gate, no batching, no suppression rules — and the wake carries the sender, the subject and a file path rather than the body. The plugin starts watching when it loads with a configured mailbox; Email: Start Watching Mail binds delivery to a thread, Email: Stop Watching Mail stops polling, and Email: Choose Delivery Target selects this thread or a new thread per email. A message with a link or attachment turns the agent with shell, edit and write blocked until the turn ends."
 tags: [decision, gate, wake-payload, amp-plugin, quarantine, email]
 updated: 2026-11-17
 sources: [home: raw/sessions/2026-10-09-session-2026-10-09-055057.md, home: raw/sessions/2026-10-09-session-2026-10-09-061532.md]
@@ -126,6 +126,13 @@ claims:
     support: 0.85
     evidence: ["user: Andrei Li, 2026-10-09 — 'You can commit everything as is, and lets go with the recommendations for everything else. Lets get this setup wired into email-setup, remove outlook from the picture, and just get the system ready for testing. You dont need to start testing yet.'", "context: the choice he answered offered (a) redact the address from the wiki before committing, recommended, or (b) commit and push everything as it is"]
     reviewed: 2026-10-09
+    last_checked: 2026-11-17
+  - id: c18
+    text: "Delivery target is a user setting: new mail can wake an existing thread or start a new thread for each email. The setting is persisted as delivery.mode and delivery.threadId; Start Watching Mail records the current thread, and Choose Delivery Target writes the mode. An account lock serializes sync and delivery across plugin instances, so one message wakes one thread even when several Amp threads loaded the plugin."
+    status: user-stated
+    support: 0.95
+    evidence: ["user: Andrei Li, 2026-11-17 — 'Users should also be able to configure whether to bind to an existing thread or start a new thread when an email comes in.'", "file: index.ts — deliveryMode, email.delivery, saveDelivery", "file: src/spool.ts — withAccountLock() serializes a whole account pass", "command: npm run load-check → 'the delivery target is persisted', 'new mode creates a new thread for the email', 'the old thread does not receive it'", "command: npm run self-check → 'only one account pass holds the lock'"]
+    reviewed: 2026-11-17
     last_checked: 2026-11-17
 ---
 

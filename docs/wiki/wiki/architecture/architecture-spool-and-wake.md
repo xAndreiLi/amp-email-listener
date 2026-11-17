@@ -43,10 +43,10 @@ claims:
     reviewed: 2026-11-17
     last_checked: 2026-11-17
   - id: c4
-    text: "The plugin starts polling as soon as it loads with a configured mailbox. `Email: Start Watching Mail` (`email.watch.start`) binds delivery to the thread it is run in, or reports that it is already watching; `Email: Stop Watching Mail` (`email.watch.stop`) stops polling. A start with no binding follows the active thread, and creates a mail thread when there is none."
+    text: "The plugin starts polling as soon as it loads with a configured mailbox. `Email: Start Watching Mail` (`email.watch.start`) persists this thread as the delivery target, or reports that it is already watching; `Email: Stop Watching Mail` (`email.watch.stop`) stops polling. `Email: Choose Delivery Target` (`email.delivery`) sets the persisted target to this thread or to a new thread per email; `new` creates a fresh thread for each message. An account lock serializes sync and delivery across every plugin instance, so one message wakes one thread."
     status: verified
     support: 0.9
-    evidence: ["file: index.ts — the auto-start at the bottom, and the two command handlers", "command: npm run load-check → 'the watch commands are separate and named for their actions', 'the stop command stops watching', 'mail goes to the thread the start command ran in'"]
+    evidence: ["file: index.ts — deliveryMode, the auto-start, and the Start/Stop/Choose command handlers", "file: src/spool.ts — withAccountLock() opens account.lock with wx and releases it in finally", "command: npm run load-check → 'the delivery target is persisted', 'new mode creates a new thread for the email', 'the old thread does not receive it'", "command: npm run self-check → 'only one account pass holds the lock'"]
     reviewed: 2026-11-17
     last_checked: 2026-11-17
   - id: c5
@@ -102,12 +102,12 @@ always-on process.
 
 | File | Owns |
 |---|---|
-| `index.ts` | The Amp plugin entry: the three commands, the poll timer, `deliver()`, auto-start, and the `tool.call` quarantine. |
+| `index.ts` | The Amp plugin entry: the four commands, the poll timer, the persisted delivery mode, `deliver()`, auto-start, and the `tool.call` quarantine. |
 | `src/source.ts` | A provider adapter as two calls: `listNew(cursor) → { envelopes, cursor }` and `fetch(id) → raw message`, plus an optional `close()` for a source that holds a connection. `fixtureSource` reads a directory of `.eml` files. |
 | `src/imap.ts` | The front door: a mailbox the agent owns, read over IMAP with app passwords. Cursor is `uidValidity` plus the highest UID, resets when the server rebuilds, first pass takes the newest 50, and nothing is ever marked read, moved or deleted. |
 | `src/graph.ts` | Microsoft Graph: delta on one folder bounded by `receivedDateTime ge`, paging, MIME through `$value`. See [the Graph page](microsoft-graph-source.md). |
 | `src/microsoft-auth.ts` | The device code sign-in and the token store, refreshed when close to expiring. |
-| `src/spool.ts` | The layout: raw message, `index.jsonl`, `cursor.json`, `delivered.json` per account. Store never overwrites an existing file. |
+| `src/spool.ts` | The layout: raw message, `index.jsonl`, `cursor.json`, `delivered.json` per account. Store never overwrites an existing file. `withAccountLock()` serializes a whole account pass across plugin instances. |
 | `src/config.ts` | Accounts from `~/.config/amp/amp-email-listener.json`, movable with `AMP_EMAIL_LISTENER_CONFIG`; mail lives under `~/.config/amp/mail`, movable with `AMP_EMAIL_LISTENER_MAIL_DIR`. Provider-specific fields: `dir` for fixture, `clientId`/`tenant`/`mailbox`/`folder`/`since` for graph. |
 | `src/fetcher.ts` | One pass per account, ids in the index skipped, the provider's cursor stored, one broken account not stopping the others. Long message ids get a hashed file name. |
 | `src/wake.ts` | What is undelivered, the pointer text, and whether a message needs care. No plugin host imports: this is the half the stub test drives directly. |
@@ -119,8 +119,9 @@ always-on process.
 | Command | What it does |
 |---|---|
 | `Email: Set up a mailbox` (`email.setup`) | The whole of onboarding. First choice: give the agent an AgentMail address on the spot, written before it is verified because its key cannot be fetched again ([AgentMail page](agentmail-agent-inbox.md)). Otherwise ask, open the pages, verify, write the account. |
-| `Email: Start Watching Mail` (`email.watch.start`) | Start polling and bind delivery to this thread. If polling is already on, it rebinds to this thread rather than stopping. |
-| `Email: Stop Watching Mail` (`email.watch.stop`) | Stop polling and clear the thread binding. |
+| `Email: Start Watching Mail` (`email.watch.start`) | Start polling and persist this thread as the delivery target. If polling is already on, it rebinds to this thread rather than stopping. |
+| `Email: Stop Watching Mail` (`email.watch.stop`) | Stop polling and clear the in-memory binding. |
+| `Email: Choose Delivery Target` (`email.delivery`) | Persist either this thread or a new thread per email as the delivery target. |
 
 The plugin auto-starts when the config has at least one account, so the first pass after Amp starts
 fetches the backlog. `Email: Stop Watching Mail` is the explicit off switch.
@@ -131,8 +132,11 @@ fetches the backlog. `Email: Stop Watching Mail` is the explicit off switch.
   process; the old `src/service.ts` and `src/daemon.mjs` are gone.
 - The plugin polls only while Amp runs. The provider cursor is the backlog: the first pass after
   Amp starts fetches everything that arrived since the last pass.
-- `Email: Start Watching Mail` binds delivery to the thread it is run in; without a binding the
+- `Email: Start Watching Mail` persists delivery to the thread it is run in; `Email: Choose Delivery
+  Target` persists either that thread or a new thread per email. Without a persisted target the
   plugin follows the active thread and creates a mail thread when there is none.
+- Only one account pass runs at a time across plugin instances. A second instance that finds
+  `account.lock` skips the pass instead of delivering the same index line to a second thread.
 - A message is stored once. The file name derives from the provider id — hashed at the tail when the
   id is too long for a name — collisions get a suffix, and the index is append-only.
 - The wake carries a pointer, never a body
