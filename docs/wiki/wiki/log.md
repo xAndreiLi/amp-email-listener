@@ -175,3 +175,12 @@
 - Orphans: 0 · raw backlog: 0
 - Contradiction checks: 8 · duplicate candidates: 1
 
+## [2026-11-17] finalize | Bounded IMAP passes: 60s socket timeout, an idle-error listener that drops the connection, and a two-minute stale account lock, so a stalled pass cannot hide new mail.
+- Updated: architecture/architecture-spool-and-wake.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 46 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 1
+

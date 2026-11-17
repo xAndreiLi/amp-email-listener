@@ -43,7 +43,7 @@ claims:
     reviewed: 2026-11-17
     last_checked: 2026-11-17
   - id: c4
-    text: "The plugin starts polling as soon as it loads with a configured mailbox. `Email: Start Watching Mail` (`email.watch.start`) persists this thread as the delivery target, or reports that it is already watching; `Email: Stop Watching Mail` (`email.watch.stop`) stops polling. `Email: Choose Delivery Target` (`email.delivery`) sets the persisted target to this thread or to a new thread per email; `new` creates a fresh thread for each message. An account lock serializes sync and delivery across every plugin instance, so one message wakes one thread."
+    text: "The plugin starts polling as soon as it loads with a configured mailbox. `Email: Start Watching Mail` (`email.watch.start`) persists this thread as the delivery target, or reports that it is already watching; `Email: Stop Watching Mail` (`email.watch.stop`) stops polling. `Email: Choose Delivery Target` (`email.delivery`) sets the persisted target to this thread or to a new thread per email; `new` creates a fresh thread for each message. An account lock serializes sync and delivery across every plugin instance, so one message wakes one thread; a pass that has not finished in two minutes is treated as dead, so a stuck instance cannot hold the lock indefinitely."
     status: verified
     support: 0.9
     evidence: ["file: index.ts — deliveryMode, the auto-start, and the Start/Stop/Choose command handlers", "file: src/spool.ts — withAccountLock() opens account.lock with wx and releases it in finally", "command: npm run load-check → 'the delivery target is persisted', 'new mode creates a new thread for the email', 'the old thread does not receive it'", "command: npm run self-check → 'only one account pass holds the lock'"]
@@ -71,10 +71,10 @@ claims:
     reviewed: 2026-11-17
     last_checked: 2026-11-17
   - id: c8
-    text: "The IMAP source does not keep a dead connection. Any failure inside a mailbox operation drops the client and logs it out best-effort, so the next pass reconnects rather than failing forever on a socket the server has already closed — and the error still reaches the caller. The interval between passes is still fixed; there is no backoff yet."
+    text: "The IMAP source does not keep a dead connection. Any failure inside a mailbox operation drops the client and closes the socket, so the next pass reconnects rather than failing forever on a socket the server has already closed — and the error still reaches the caller. A connection that dies while idle is dropped through an `error` listener, and the socket, connect and greeting timeouts are 60s, 30s and 15s so a dead socket cannot stall a pass for the five-minute default. The interval between passes is still fixed; there is no backoff yet."
     status: verified
     support: 0.85
-    evidence: ["file: src/imap.ts — withMailbox() sets the cached client to undefined and logs it out in the catch, then rethrows", "command: npm run imap-check → 'a dropped connection surfaces as an error rather than silence', 'the dead client is dropped', 'and the next pass connects again'"]
+    evidence: ["file: src/imap.ts — withMailbox() drops the client and closes it in the catch; connected() attaches the error listener; the ImapFlow options set socketTimeout, connectionTimeout and greetingTimeout", "file: src/spool.ts — ACCOUNT_LOCK_STALE_MS is two minutes", "command: npm run imap-check → 'a dropped connection surfaces as an error rather than silence', 'the dead client is dropped', 'and the next pass connects again', 'and it reconnects instead of reusing the dead socket'"]
     reviewed: 2026-11-17
     last_checked: 2026-11-17
   - id: c9
