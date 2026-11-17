@@ -57,10 +57,10 @@ claims:
     reviewed: 2026-11-17
     last_checked: 2026-11-17
   - id: c6
-    text: "The sync cursor belongs to the provider: `listNew(cursor)` returns `{ envelopes, cursor }` and the fetcher stores whatever comes back without interpreting it. A fixture returns the newest date it saw, Graph returns the deltaLink or the page it stopped on, and IMAP returns uidValidity plus the highest UID. The cursor is persisted even when a pass stored nothing, because a page that was consumed still moved the position."
+    text: "The sync cursor belongs to the provider: `listNew(cursor)` returns `{ envelopes, cursor }` and the fetcher stores whatever comes back without interpreting it. A fixture returns the newest date it saw, Graph returns the deltaLink or the page it stopped on, and IMAP returns uidValidity plus the highest contiguously readable UID. A UID the server lists but will not hand over does not move the cursor, so the next pass retries it instead of skipping it forever. The cursor is persisted even when a pass stored nothing, because a page that was consumed still moved the position."
     status: verified
     support: 0.9
-    evidence: ["file: src/source.ts — the MailSource interface returns { envelopes, cursor }", "file: src/fetcher.ts — syncAccount writes the returned cursor when it has any keys", "command: npm run graph-check → 'the delta link is the stored cursor' and 'a second pass stores nothing new'"]
+    evidence: ["file: src/source.ts — the MailSource interface returns { envelopes, cursor }", "file: src/fetcher.ts — syncAccount writes the returned cursor when it has any keys", "file: src/imap.ts — listNew() moves lastUid only while no UID has been skipped", "command: npm run graph-check → 'the delta link is the stored cursor' and 'a second pass stores nothing new'", "command: npm run imap-check → 'a uid the server will not hand over stores nothing', 'and the cursor stays before it', 'the next pass retries it', 'and only then moves the cursor'"]
     reviewed: 2026-11-17
     last_checked: 2026-11-17
   - id: c7
@@ -111,7 +111,7 @@ always-on process.
 |---|---|
 | `index.ts` | The Amp plugin entry: the five commands, the poll timer, the persisted delivery mode, `deliver()`, auto-start, and the `tool.call` quarantine. |
 | `src/source.ts` | A provider adapter as two calls: `listNew(cursor) → { envelopes, cursor }` and `fetch(id) → raw message`, plus an optional `close()` for a source that holds a connection. `fixtureSource` reads a directory of `.eml` files. |
-| `src/imap.ts` | The front door: a mailbox the agent owns, read over IMAP with app passwords. Cursor is `uidValidity` plus the highest UID, resets when the server rebuilds, first pass takes the newest 50, and nothing is ever marked read, moved or deleted. |
+| `src/imap.ts` | The front door: a mailbox the agent owns, read over IMAP with app passwords. Cursor is `uidValidity` plus the highest contiguously readable UID, so a message the server lists before it can be fetched is retried rather than skipped; it resets when the server rebuilds, the first pass takes the newest 50, and nothing is ever marked read, moved or deleted. |
 | `src/graph.ts` | Microsoft Graph: delta on one folder bounded by `receivedDateTime ge`, paging, MIME through `$value`. See [the Graph page](microsoft-graph-source.md). |
 | `src/microsoft-auth.ts` | The device code sign-in and the token store, refreshed when close to expiring. |
 | `src/spool.ts` | The layout: raw message, `index.jsonl`, `cursor.json`, `delivered.json` per account. Store never overwrites an existing file. `withAccountLock()` serializes a whole account pass across plugin instances. |
