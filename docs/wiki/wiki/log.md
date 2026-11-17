@@ -220,3 +220,12 @@
 - Orphans: 0 · raw backlog: 0
 - Contradiction checks: 8 · duplicate candidates: 1
 
+## [2026-11-17] finalize | The claim prompt copies the API key to the clipboard before opening AgentMail's claim page, falling back to the key file when no clipboard tool exists.
+- Updated: architecture/agentmail-agent-inbox.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 46 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 1
+
