@@ -2,9 +2,9 @@
 title: "Installed from npm, the background fetcher could not start (fixed 2026-10-09)"
 type: gotcha
 topic: gotchas
-summary: "An npm-installed copy loaded the extension but could not start the detached fetcher, for three independent reasons: scripts/ was not published, Node refuses to strip types under node_modules, and plain node cannot resolve the pi peer that config.ts and spool.ts imported at top level. It only ever worked on Andrei's machine because pi loads this checkout. Fixed the way pi-jev-wiki does it: src/daemon.mjs loads the fetcher through jiti, nothing but the extension imports pi, and the extension hands pi's agent directory to the rest. Proven from a real npm-style install with no pi peer, and guarded by self-check."
-tags: [gotcha, npm, install, service, jiti, type-stripping, distribution]
-updated: 2026-10-09
+summary: "Historical (pi-era). An npm-installed copy loaded the extension but could not start the detached fetcher, for three independent reasons: scripts/ was not published, Node refuses to strip types under node_modules, and plain node cannot resolve the pi peer that config.ts and spool.ts imported at top level. It only ever worked on Andrei's machine because pi loads this checkout. Fixed the way pi-jev-wiki does it: src/daemon.mjs loads the fetcher through jiti, nothing but the extension imports pi, and the extension hands pi's agent directory to the rest. Proven from a real npm-style install with no pi peer, and guarded by self-check. The project is now a single-file Amp plugin; this page records the pi-era packaging bug."
+tags: [gotcha, npm, install, service, jiti, type-stripping, distribution, historical]
+updated: 2026-11-17
 sources: ["raw/sessions/2026-10-09-session-2026-10-09-080256.md", "raw/sessions/2026-10-09-session-2026-10-09-082544.md"]
 files:
   [
@@ -39,6 +39,10 @@ claims:
     reviewed: 2026-10-09
     last_checked: 2026-10-09
 ---
+
+> **Historical (pi-era).** This page records an npm/pi packaging bug from 2026-10-09. The project is
+> now a single-file Amp plugin with no npm package, no `src/service.ts`, no `src/daemon.mjs`, and no
+> detached fetcher. See [A spool between the mailbox and the Amp thread](../architecture/architecture-spool-and-wake.md).
 
 ## Why nobody noticed
 

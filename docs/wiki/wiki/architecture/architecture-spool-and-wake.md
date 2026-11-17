@@ -1,13 +1,14 @@
 ---
-title: "Two halves joined by a spool: the fetcher fills files, the session reads them"
+title: "A spool between the mailbox and the Amp thread"
 type: architecture/layer
 topic: architecture
-summary: "pi-email-listener is a standalone fetcher that owns the mailbox connection and writes .eml files plus an append-only index under the agent directory, and an in-session pi extension that reads that spool and turns the agent. The split exists because a wake can only be sent from inside the session being woken, while the fragile half — OAuth, reconnect, sync position — must outlive pi restarts. Providers plug in through two calls, and the sync cursor belongs to the provider."
-tags: [architecture, spool, pi-extension, wake, oauth, fetcher, providers]
-updated: 2026-10-09
+summary: "amp-email-listener is a single-file Amp plugin that polls configured mailboxes while Amp runs, writes raw .eml files plus an append-only index under the Amp config directory, and appends a pointer to each new message to a thread, which wakes the agent. There is no separate service: the provider cursor in the spool is what catches up mail that arrived while Amp was off. Providers plug in through two calls, and the sync cursor belongs to the provider."
+tags: [architecture, spool, amp-plugin, wake, oauth, fetcher, providers]
+updated: 2026-11-17
 sources: [home: raw/sessions/2026-10-09-session-2026-10-09-055057.md]
 files:
   [
+    C:/Coding/pi-email-listener/index.ts,
     C:/Coding/pi-email-listener/src/spool.ts,
     C:/Coding/pi-email-listener/src/source.ts,
     C:/Coding/pi-email-listener/src/config.ts,
@@ -15,130 +16,144 @@ files:
     C:/Coding/pi-email-listener/src/graph.ts,
     C:/Coding/pi-email-listener/src/microsoft-auth.ts,
     C:/Coding/pi-email-listener/src/wake.ts,
-    C:/Coding/pi-email-listener/src/extension.ts,
-    C:/Coding/pi-email-listener/src/daemon.mjs,
-    C:/Coding/pi-email-listener/src/service.ts,
-    C:/Coding/pi-email-listener/docs/PLAN.md,
+    C:/Coding/pi-email-listener/src/setup.ts,
+    C:/Coding/pi-email-listener/dist/amp-email-listener.js,
+    C:/Coding/pi-email-listener/README.md,
   ]
 claims:
   - id: c1
-    text: "The package is two halves joined by files on disk. The fetcher (src/fetcher.ts) owns the provider connection and the sync position and writes, per account under `<agent dir>/mail/<account>/`, the raw message, one append-only `index.jsonl` line and its own `cursor.json`; the extension (src/extension.ts) reads only those files and turns the agent. The fetcher imports no session API at all."
+    text: "The plugin is one file at install time. `index.ts` registers the commands, owns the poll timer, and appends pointers; it imports the provider, spool, config, setup, and wake modules. `bun build` bundles it to `dist/amp-email-listener.js`, which is the file users drop into `.amp/plugins` or the personal plugin repo. There is no npm package and no second process."
+    status: verified
+    support: 0.95
+    evidence: ["file: index.ts — the plugin entry, commands, timer, deliver(), and auto-start", "file: package.json — private: true, and the build script runs bun build", "command: npm run install-check → 'the single file loads with no node_modules'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
+  - id: c2
+    text: "The plugin runs inside Amp and wakes a thread with `thread.appendUserMessage(...)`; there is no pi extension, RPC-hosted session, or separate daemon. The first pass after the plugin loads reads each account's provider cursor, so mail that arrived while Amp was off is fetched then."
     status: verified
     support: 0.9
-    evidence: ["file: src/fetcher.ts — imports config, source, spool, graph and microsoft-auth only; the module has no ExtensionAPI import", "file: src/spool.ts — mailRoot() is `<agent dir>/mail`, overridable with PI_EMAIL_LISTENER_MAIL_DIR", "command: PI_EMAIL_LISTENER_CONFIG=<temp config> PI_EMAIL_LISTENER_MAIL_DIR=<temp> npm run fetch:once → 'stored 2026-10-09T12:32:07.000Z · dana@example.com · Q3 rollout → a-example.com.eml', exit 0, with no pi process involved"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
-  - id: c2
-    text: "The split is forced by where a wake can come from: turning an agent means `pi.sendMessage(…, {triggerTurn: true})` from an extension loaded in that session, so nothing outside the session can start one. A mailbox connection that depends on a session being open would forget its position and drop its tokens every time pi restarts, which is why the connection lives in a process that has no opinion about sessions."
-    status: verified
-    support: 0.85
-    evidence: ["file: src/extension.ts — the only file that imports ExtensionAPI, and the only place pi.sendMessage is called", "file: docs/PLAN.md — §3 records the alternative shapes considered (a listener owning an RPC/SDK-hosted session) and why the spool seam keeps them open without a rewrite", "command: npm run fetch:once runs the whole mailbox half in a plain jiti process, which is what makes the seam real rather than aspirational"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
+    evidence: ["file: index.ts — amp.registerCommand, setInterval, tick(), and deliver()", "file: src/fetcher.ts — syncAccount reads the saved cursor and writes the next one", "command: npm run load-check → 'the first pass fetches the backlog' and 'restarting fetches the mail that arrived while it was off'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
   - id: c3
     text: "Delivery to the agent is tracked as an index line count per account (`delivered.json`), not as a list of ids: a restart neither repeats nor skips, and it costs one small file. A torn or unreadable cursor falls back to 0 and re-delivers, because a repeated turn is cheap and a skipped message is not."
     status: verified
     support: 0.9
-    evidence: ["file: src/wake.ts — undelivered() filters index lines greater than the delivered count; readDelivered() returns 0 when the file is missing or unparsable", "command: npm run load-check → 'ok nothing is delivered twice' and 'ok the spool still holds the message once'"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
+    evidence: ["file: src/wake.ts — undelivered() filters index lines greater than the delivered count; readDelivered() returns 0 when the file is missing or unparsable", "command: npm run load-check → 'a later pass does not fetch the same mail again' and 'the queued message is delivered'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
   - id: c4
-    text: "Watching is opt-in per session and nothing is sent before it is asked for: `/email-watch` toggles it, and turning it on delivers whatever the spool already holds. The first available message is sent with `triggerTurn` when the session is idle and `deliverAs: \"followUp\"` when it is not, so every message still gets its own turn instead of being folded into one."
+    text: "The plugin starts polling as soon as it loads with a configured mailbox. `Email: Start Watching Mail` (`email.watch.start`) binds delivery to the thread it is run in, or reports that it is already watching; `Email: Stop Watching Mail` (`email.watch.stop`) stops polling. A start with no binding follows the active thread, and creates a mail thread when there is none."
     status: verified
     support: 0.9
-    evidence: ["file: src/extension.ts — registerCommand('email-watch') toggles the timer; tick() chooses {triggerTurn: true} only for the first message of a pass while ctx.isIdle()", "command: npm run load-check → 'ok nothing is sent before the user asks for it', 'ok the command reports that it started', 'ok mail turns the agent once', 'ok every message turns the agent, gate or no gate'"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
+    evidence: ["file: index.ts — the auto-start at the bottom, and the two command handlers", "command: npm run load-check → 'the watch commands are separate and named for their actions', 'the stop command stops watching', 'mail goes to the thread the start command ran in'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
   - id: c5
-    text: "A turn started by a message carrying a link or an attachment is quarantined: the `tool_call` handler refuses `bash`, `edit` and `write` with a reason naming the message, while reading stays available, and the refusal is lifted on `agent_settled` — the point at which the human can see what arrived. Detection is header-based (Content-Disposition: attachment, filename=) plus a URL search in the body, so a link hidden inside an encoded part is not caught."
+    text: "A turn started by a message carrying a link or an attachment is quarantined: the `tool.call` handler rejects `shell_command`, `bash`, `edit_file`, `create_file` and `apply_patch` while quarantined, reading stays available, and `agent.end` clears it. Detection is header-based plus a URL search in the body, so a link hidden inside an encoded part is not caught."
     status: verified
     support: 0.85
-    evidence: ["file: src/extension.ts — pi.on('tool_call', …) returns {block: true, reason} for GATED_TOOLS while quarantined; pi.on('agent_settled', …) clears it", "file: src/wake.ts — needsCare() tests attachment headers and http(s) in the body, with the limit recorded as a shortcut comment", "command: npm run load-check → 'ok a message with a link blocks the shell', 'ok it blocks writing too', 'ok reading is still allowed', 'ok the tools come back when the turn ends'"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
+    evidence: ["file: index.ts — GATED_TOOLS, the tool.call handler, and the agent.start/agent.end handlers", "file: src/wake.ts — needsCare() tests attachment headers and http(s) in the body", "command: npm run load-check → 'a message with a link blocks the shell', 'it blocks editing too', 'reading is still allowed', 'the tools come back when the turn ends'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
   - id: c6
-    text: "The sync cursor belongs to the provider: `listNew(cursor)` returns `{ envelopes, cursor }` and the fetcher stores whatever comes back without interpreting it. A fixture returns the newest date it saw, Graph returns the deltaLink or the page it stopped on. The cursor is persisted even when a pass stored nothing, because a page that was consumed still moved the position."
+    text: "The sync cursor belongs to the provider: `listNew(cursor)` returns `{ envelopes, cursor }` and the fetcher stores whatever comes back without interpreting it. A fixture returns the newest date it saw, Graph returns the deltaLink or the page it stopped on, and IMAP returns uidValidity plus the highest UID. The cursor is persisted even when a pass stored nothing, because a page that was consumed still moved the position."
     status: verified
     support: 0.9
-    evidence: ["file: src/source.ts — the MailSource interface returns { envelopes, cursor }, and fixtureSource builds its own { lastSeenAt }", "file: src/fetcher.ts — syncAccount writes the returned cursor when it has any keys, rather than computing one from the newest arrival", "command: npm run graph-check → 'the delta link is the stored cursor', 'and asks the delta link rather than re-listing the folder', 'the folder and account are remembered in the cursor'", "command: the first run of graph-check failed with 'TypeError: envelopes is not iterable', which is what forced the cursor to move to the provider where the design said it belonged"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
+    evidence: ["file: src/source.ts — the MailSource interface returns { envelopes, cursor }", "file: src/fetcher.ts — syncAccount writes the returned cursor when it has any keys", "command: npm run graph-check → 'the delta link is the stored cursor' and 'a second pass stores nothing new'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
   - id: c7
-    text: "A message reaching the spool really does start a turn in a settled session. Driven over RPC on pi 1.1.0 with the extension loaded: the agent settled at 3.6 s, the fetcher stored a message at 13.1 s, and at 13.4 s a turn started with no prompt behind it carrying the pointer `[email] Dana Whitfield <dana@example.com> · Q3 rollout needs a decision`."
-    status: verified
-    support: 0.95
-    evidence: ["command: npm run live → '3.6s agent_settled #1', '13.1s fetcher exited 0', '13.4s agent_start (no prompt behind it — this is the wake)', '13.4s wake message: [email] Dana Whitfield <dana@example.com> · Q3 rollout needs a decision', 'PASS: a spooled message started a turn by itself, carrying the pointer', 973 protocol records"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
-  - id: c8
-    text: "The IMAP source does not keep a dead connection. Any failure inside a mailbox operation drops the client and logs it out best-effort, so the next pass reconnects rather than failing forever on a socket the server has already closed — and the error still reaches the caller, so the failure is visible rather than silent. The interval between passes is still fixed; there is no backoff yet."
+    text: "The pieces are verified against a stub host and a real Amp plugin load: the stub proves the pointer append starts a turn and the quarantine blocks tools, and the real loader lists the three commands."
     status: verified
     support: 0.85
-    evidence: ["file: src/imap.ts — withMailbox() sets the cached client to undefined and logs it out in the catch, then rethrows", "command: npm run imap-check → 'a dropped connection surfaces as an error rather than silence', 'the dead client is dropped', 'and the next pass connects again', 'which is the second connect'"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
+    evidence: ["command: npm run load-check → all checks pass, including the pointer, the wake and the quarantine", "command: amp plugins list in a fresh project → 'Email: Start Watching Mail', 'Email: Stop Watching Mail', 'Email: Set up a mailbox'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
+  - id: c8
+    text: "The IMAP source does not keep a dead connection. Any failure inside a mailbox operation drops the client and logs it out best-effort, so the next pass reconnects rather than failing forever on a socket the server has already closed — and the error still reaches the caller. The interval between passes is still fixed; there is no backoff yet."
+    status: verified
+    support: 0.85
+    evidence: ["file: src/imap.ts — withMailbox() sets the cached client to undefined and logs it out in the catch, then rethrows", "command: npm run imap-check → 'a dropped connection surfaces as an error rather than silence', 'the dead client is dropped', 'and the next pass connects again'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
+  - id: c9
+    text: "A live message wake in a real Amp session has not been observed yet; the mailbox configured on Andrei's machine was empty during the first passes. The stub host and the real loader verify the append and command registration, not the end-to-end provider-to-turn path."
+    status: open
+    support: 0.6
+    evidence: ["observation: the configured mailbox's first sync found no messages", "file: README.md — the live wake is the remaining check"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
 ---
 
 ## Shape
 
 ```
-mailbox ──▶ fetcher (always on, no pi) ──▶ spool of files ──▶ extension in a session ──▶ turn
-             OAuth, reconnect, catch-up      .eml + index      opt-in via /email-watch
+mailbox ──▶ plugin poll (while Amp runs) ──▶ spool of files ──▶ thread.appendUserMessage ──▶ turn
+             OAuth, reconnect, catch-up      .eml + index      pointer, never the body
 ```
+
+The plugin's timer calls `syncAccount` for each account. New messages become raw `.eml` files plus an
+append-only `index.jsonl` line; undelivered lines become a pointer appended to a thread. The first
+pass after Amp starts reads the provider cursor, so the backlog is fetched then. There is no
+always-on process.
 
 ## Modules
 
 | File | Owns |
 |---|---|
+| `index.ts` | The Amp plugin entry: the three commands, the poll timer, `deliver()`, auto-start, and the `tool.call` quarantine. |
 | `src/source.ts` | A provider adapter as two calls: `listNew(cursor) → { envelopes, cursor }` and `fetch(id) → raw message`, plus an optional `close()` for a source that holds a connection. `fixtureSource` reads a directory of `.eml` files. |
 | `src/imap.ts` | The front door: a mailbox the agent owns, read over IMAP with app passwords. Cursor is `uidValidity` plus the highest UID, resets when the server rebuilds, first pass takes the newest 50, and nothing is ever marked read, moved or deleted. |
 | `src/graph.ts` | Microsoft Graph: delta on one folder bounded by `receivedDateTime ge`, paging, MIME through `$value`. See [the Graph page](microsoft-graph-source.md). |
 | `src/microsoft-auth.ts` | The device code sign-in and the token store, refreshed when close to expiring. |
 | `src/spool.ts` | The layout: raw message, `index.jsonl`, `cursor.json`, `delivered.json` per account. Store never overwrites an existing file. |
-| `src/config.ts` | Accounts from `<agent dir>/pi-email-listener.json`, movable with `PI_EMAIL_LISTENER_CONFIG`. `agentDir()` reproduces pi's own rule without importing pi. Provider-specific fields: `dir` for fixture, `clientId`/`tenant`/`mailbox`/`folder`/`since` for graph. |
-| `src/fetcher.ts` | One pass per account, ids in the index skipped, the provider's cursor stored, one broken account not stopping the others. Polls forever or `--once`. Long message ids get a hashed file name. |
-| `src/wake.ts` | What is undelivered, the pointer text, and whether a message needs care. No pi imports: this is the half the stub test drives directly. |
-| `src/daemon.mjs` | The fetcher's entry point, for the service and for `npm run fetch`: plain JavaScript that loads `fetcher.ts` through jiti, so an npm-installed copy runs from under `node_modules`. |
-| `src/service.ts` | The detached fetcher: start (plain node on `src/daemon.mjs`), one process only, pid and start time in `service.json`, output in `service.log`, stop from any later session. |
+| `src/config.ts` | Accounts from `~/.config/amp/amp-email-listener.json`, movable with `AMP_EMAIL_LISTENER_CONFIG`; mail lives under `~/.config/amp/mail`, movable with `AMP_EMAIL_LISTENER_MAIL_DIR`. Provider-specific fields: `dir` for fixture, `clientId`/`tenant`/`mailbox`/`folder`/`since` for graph. |
+| `src/fetcher.ts` | One pass per account, ids in the index skipped, the provider's cursor stored, one broken account not stopping the others. Long message ids get a hashed file name. |
+| `src/wake.ts` | What is undelivered, the pointer text, and whether a message needs care. No plugin host imports: this is the half the stub test drives directly. |
 | `src/setup.ts` | The wizard as logic with the dialogs injected: what is asked, in what order, and what is verified before anything is written. |
-| `src/extension.ts` | The pi wiring: three commands, the timer, `sendMessage`, the `tool_call` quarantine, service autostart, teardown on `session_shutdown`. |
+| `dist/amp-email-listener.js` | The built single file users install. It carries its dependencies and needs no `node_modules`. |
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `/email-setup` | The whole of onboarding. First choice: give the agent an AgentMail address on the spot, written before it is verified because its key cannot be fetched again ([AgentMail page](agentmail-agent-inbox.md)). Otherwise ask, open the pages, verify, write the account. Either way, offer to run it in the background. |
-| `/email-watch` | Turn this session on to incoming mail, and off again. Nothing is watched until it is asked for. |
-| `/email-service` | Report what the detached fetcher is doing, with `start`, `stop` and `restart`. |
+| `Email: Set up a mailbox` (`email.setup`) | The whole of onboarding. First choice: give the agent an AgentMail address on the spot, written before it is verified because its key cannot be fetched again ([AgentMail page](agentmail-agent-inbox.md)). Otherwise ask, open the pages, verify, write the account. |
+| `Email: Start Watching Mail` (`email.watch.start`) | Start polling and bind delivery to this thread. If polling is already on, it rebinds to this thread rather than stopping. |
+| `Email: Stop Watching Mail` (`email.watch.stop`) | Stop polling and clear the thread binding. |
+
+The plugin auto-starts when the config has at least one account, so the first pass after Amp starts
+fetches the backlog. `Email: Stop Watching Mail` is the explicit off switch.
 
 ## Invariants
 
-- Only `src/extension.ts` imports pi at runtime. Inside pi it hands pi's agent directory to the rest
-  through `PI_EMAIL_LISTENER_CONFIG` and `PI_EMAIL_LISTENER_MAIL_DIR`, which the detached child
-  inherits. `self-check` enforces both halves ([the npm-install gotcha](../gotchas/gotcha-npm-install-cannot-start-fetcher.md)).
-- The fetcher never calls into pi, and the extension never touches a mailbox. Adding a provider means
-  writing `listNew` and `fetch` and nothing else.
+- The plugin is the only runtime. There is no npm package, no detached fetcher, and no second
+  process; the old `src/service.ts` and `src/daemon.mjs` are gone.
+- The plugin polls only while Amp runs. The provider cursor is the backlog: the first pass after
+  Amp starts fetches everything that arrived since the last pass.
+- `Email: Start Watching Mail` binds delivery to the thread it is run in; without a binding the
+  plugin follows the active thread and creates a mail thread when there is none.
 - A message is stored once. The file name derives from the provider id — hashed at the tail when the
   id is too long for a name — collisions get a suffix, and the index is append-only.
 - The wake carries a pointer, never a body
   (§ [no gate and the pointer](../decisions/decision-no-gate-and-pointer.md)).
-- Nothing turns the agent until the user asks for it in that session; the always-on case is
-  `PI_EMAIL_LISTENER_AUTOSTART`, which exists for a session meant to be woken and for the RPC test.
+- A message with a link or attachment quarantines the turn: shell, edit and write are refused until
+  the turn ends, while reading stays available.
 - Credentials stay out of the repository: the refresh token is written beside the spool.
 
 ## Alternatives considered, and kept open
 
-The shape rejected for v1 is a listener that owns a pi session — spawning one in RPC mode or hosting
-it through the SDK. It is a real product ("an agent on duty" with nobody at the terminal) but a worse
-one for the case this package starts from: the session it wakes is not the one the user is sitting
-in. The spool seam keeps it available: because the fetcher's only output is files, running it as a
-supervised process, or pointing a hosted agent at the same spool, is a deployment change rather than
-a rewrite. Andrei accepted the seam with that reasoning ("I like the recommendation", 2026-10-09).
+The earlier pi design used two processes: a detached fetcher and an in-session extension joined by
+the spool. The Amp plugin replaced both halves with one file on 2026-11-17, because the plugin can
+poll and append to a thread from the same process. The spool seam is still real: a future
+out-of-process fetcher could write the same files, but no such service is shipped.
 
 ## Not built yet
 
-Surviving a reboot — the detached fetcher outlives a session but not a restart, which needs a Windows
-scheduled task or a systemd unit. Also: backoff between passes around a mailbox that keeps failing,
-catch-up reporting when a watch is turned on over a large backlog, and the `Fwd:` heuristic is
-deliberately shallow — it recovers the usual top-quoted `From:` line and nothing more. Sending is not
-on this list and will not be: the agent has no send path by decision.
+- A live message wake in a real session (c9). The stub host and the real loader prove the pieces,
+  not the end-to-end provider-to-turn path.
+- Backoff between passes around a mailbox that keeps failing, and catch-up reporting when a start
+  covers a large backlog.
+- The `Fwd:` heuristic is deliberately shallow — it recovers the usual top-quoted `From:` line and
+  nothing more.
+- Sending is not on this list and will not be: the agent has no send path by decision.

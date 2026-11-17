@@ -93,3 +93,46 @@
 - Updated: decisions/decision-no-gate-and-pointer.md
 - Updated: architecture/architecture-spool-and-wake.md
 
+## [2026-10-10] capture | 6 insights (tool)
+- Raw: raw/sessions/2026-10-10-session-2026-10-10-003455.md
+- Filed 0 · reinforced 0 · review 0 · rejected 6
+
+## [2026-10-10] capture | 6 insights (tool)
+- Raw: raw/sessions/2026-10-10-session-2026-10-10-003512.md
+- Filed 1 · reinforced 1 · review 2 · rejected 2
+
+## [2026-10-10] capture | 2 insights (tool)
+- Raw: raw/sessions/2026-10-10-session-2026-10-10-003521.md
+- Filed 1 · reinforced 1 · review 0 · rejected 0
+
+## [2026-10-10] capture | 2 insights (tool)
+- Raw: raw/sessions/2026-10-10-session-2026-10-10-003540.md
+- Filed 0 · reinforced 0 · review 1 · rejected 1
+
+## [2026-10-10] capture | 1 insights (tool)
+- Raw: raw/sessions/2026-10-10-session-2026-10-10-003546.md
+- Filed 0 · reinforced 0 · review 0 · rejected 1
+
+## [2026-10-10] finalize | Resend assessed against this package's design: received mail is pollable (GET /emails/receiving) with a raw .eml download and server-computed SPF/DKIM/DMARC verdicts, sending needs a domain the user has verified, and Resend's own agent-inbox product stops the agent at draft_reply. Nothing built or decided — the page is the assessment a decision stands on. Also linked it from the AgentMail page's 'Sending, for when it comes up' section.
+- Updated: architecture/resend-api-mailbox.md
+- Updated: architecture/agentmail-agent-inbox.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 42 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 0
+
+## [2026-11-17] finalize | Updated for the single-file Amp plugin: no npm package or detached service; auto-start with backlog catch-up; Email: Start Watching Mail and Email: Stop Watching Mail; historical pi packaging note; live message wake remains the open check.
+- Updated: architecture/architecture-spool-and-wake.md
+- Updated: decisions/decision-no-gate-and-pointer.md
+- Updated: architecture/agentmail-agent-inbox.md
+- Updated: gotchas/gotcha-mail-turn-meets-capture.md
+- Updated: gotchas/gotcha-npm-install-cannot-start-fetcher.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 43 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 0
+
