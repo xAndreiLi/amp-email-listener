@@ -19,7 +19,7 @@ process.env.AMP_EMAIL_LISTENER_MAIL_DIR = join(root, "mail");
 
 const { imapSource } = await import("../src/imap.ts");
 const { syncAccount } = await import("../src/fetcher.ts");
-const { readCursor, readIndex } = await import("../src/spool.ts");
+const { readCursor, readIndex, writeCursor } = await import("../src/spool.ts");
 const { originalSender } = await import("../src/source.ts");
 const { pointer } = await import("../src/wake.ts");
 
@@ -46,6 +46,7 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 	const calls: string[] = [];
 	let loggedOut = false;
 	const errorListeners: ((error: Error) => void)[] = [];
+	const hidden = new Set<number>();
 	const client = {
 		failNext: 0,
 		mailbox: { uidValidity, exists: messages.length },
@@ -79,6 +80,7 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 		},
 		async fetchOne(seq: string, _query: unknown, _options: unknown) {
 			calls.push(`fetchOne:${seq}`);
+			if (hidden.delete(Number(seq))) return false;
 			const found = messages.find((one) => String(one.uid) === String(seq));
 			return found ? { uid: found.uid, source: Buffer.from(found.source) } : false;
 		},
@@ -96,7 +98,13 @@ function stubServer(messages: { uid: number; source: string }[], uidValidity = 7
 			throw new Error("the source must never delete a message");
 		},
 	};
-	return { client, calls, loggedOut: () => loggedOut, emitError: (error: Error) => errorListeners.forEach((listener) => listener(error)) };
+	return {
+		client,
+		calls,
+		loggedOut: () => loggedOut,
+		emitError: (error: Error) => errorListeners.forEach((listener) => listener(error)),
+		hide: (uid: number) => hidden.add(uid),
+	};
 }
 
 const account = { name: "agent", provider: "imap", host: "imap.example.com", user: "agent@example.com" };
@@ -153,6 +161,27 @@ const movedSource = imapSource("agent", {
 await syncAccount(account, movedSource);
 check("a changed uidValidity starts again rather than trusting stale uids", moved.calls.some((call) => call.startsWith("fetchAll:") || call.startsWith("search:1:*")));
 check("and the new uidValidity is kept", readCursor("agent")?.uidValidity === "9");
+
+// ---------------------------------------------------------------- a uid whose body is not ready yet
+
+// A server can list a UID a moment before it will hand over the message. The cursor must not move
+// past it, or the message is lost until the mailbox is reset.
+const gap = stubServer([
+	{ uid: 1, source: raw("Already read") },
+	{ uid: 2, source: raw("Body not ready yet") },
+]);
+const gapSource = imapSource("gap", {
+	host: "imap.example.com",
+	user: "agent@example.com",
+	password: "app-password",
+	connect: () => gap.client as never,
+});
+writeCursor("gap", { uidValidity: "7", lastUid: 1 });
+gap.hide(2);
+check("a uid the server will not hand over stores nothing", (await syncAccount({ ...account, name: "gap" }, gapSource)) === 0);
+check("and the cursor stays before it", readCursor("gap")?.lastUid === 1);
+check("the next pass retries it", (await syncAccount({ ...account, name: "gap" }, gapSource)) === 1);
+check("and only then moves the cursor", readCursor("gap")?.lastUid === 2);
 
 // ---------------------------------------------------------------- reading a forwarded message
 

@@ -41696,24 +41696,32 @@ function imapSource(account, options) {
           }
         }
         const envelopes = [];
+        let cursorUid = previous?.lastUid ?? 0;
+        let gap = false;
         for (const uid of uids) {
           const cached = held.get(String(uid));
           if (cached) {
             envelopes.push({ ...envelopeOf(cached), id: String(uid) });
+            if (!gap)
+              cursorUid = uid;
             continue;
           }
           const message = await imap.fetchOne(String(uid), { uid: true, source: true }, { uid: true });
-          if (!message?.source)
+          if (!message?.source) {
+            gap = true;
             continue;
+          }
           const raw = message.source.toString("utf8");
           held.set(String(uid), raw);
           envelopes.push({ ...envelopeOf(raw), id: String(uid) });
+          if (!gap)
+            cursorUid = uid;
         }
         return {
           envelopes,
           cursor: {
             uidValidity,
-            lastUid: Math.max(previous?.lastUid ?? 0, ...uids, 0),
+            lastUid: cursorUid,
             account,
             mailbox: options.mailbox ?? "INBOX"
           }

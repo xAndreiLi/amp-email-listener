@@ -159,26 +159,34 @@ export function imapSource(account: string, options: ImapOptions): MailSource & 
 				}
 
 				const envelopes: Envelope[] = [];
+				// Only a contiguous run of readable messages may move the cursor. A UID the server
+				// lists but will not hand over yet is left for the next pass instead of being
+				// skipped forever.
+				let cursorUid = previous?.lastUid ?? 0;
+				let gap = false;
 				for (const uid of uids) {
 					const cached = held.get(String(uid));
 					if (cached) {
 						envelopes.push({ ...envelopeOf(cached), id: String(uid) });
+						if (!gap) cursorUid = uid;
 						continue;
 					}
 					const message = await imap.fetchOne(String(uid), { uid: true, source: true }, { uid: true });
-					if (!message?.source) continue;
+					if (!message?.source) {
+						gap = true;
+						continue;
+					}
 					const raw = message.source.toString("utf8");
 					held.set(String(uid), raw);
 					envelopes.push({ ...envelopeOf(raw), id: String(uid) });
+					if (!gap) cursorUid = uid;
 				}
 
 				return {
 					envelopes,
 					cursor: {
 						uidValidity,
-						// The highest UID seen, not the highest delivered: a message that could not be
-						// read this pass must not be skipped forever.
-						lastUid: Math.max(previous?.lastUid ?? 0, ...uids, 0),
+						lastUid: cursorUid,
 						account,
 						mailbox: options.mailbox ?? "INBOX",
 					} satisfies Cursor,
