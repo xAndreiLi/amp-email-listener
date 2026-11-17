@@ -2,15 +2,14 @@
  * The setup wizard, as logic rather than as a dialog: which questions, in what order, what is
  * verified before anything is written.
  *
- * The extension supplies the UI and calls this; the check supplies a stubbed UI and a stubbed
+ * The plugin supplies the UI and calls this; the check supplies a stubbed UI and a stubbed
  * mailbox. A wizard that only exists inside a terminal dialog is a wizard nobody can test.
  */
 
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { type AccountConfig, type Config, configPath, readConfigFile, saveAccount, saveServiceSetting } from "./config.ts";
+import { type AccountConfig, type Config, configPath, readConfigFile, saveAccount } from "./config.ts";
 import { verifyImap } from "./imap.ts";
-import { startService, serviceStatusText } from "./service.ts";
 
 export interface SetupUi {
 	notify(message: string, level?: string): void;
@@ -26,7 +25,6 @@ export interface SetupOptions {
 	verify?: typeof verifyImap;
 	/** Injected so the check does not open a browser or spawn anything. */
 	open?: (url: string) => void;
-	start?: typeof startService;
 	/** Injected so the check can create an address without creating one at AgentMail. */
 	signUp?: typeof signUpAgentMail;
 }
@@ -92,12 +90,11 @@ export async function runSetup(ui: SetupUi, options: SetupOptions = {}): Promise
 	const path = options.path ?? configPath();
 	const verify = options.verify ?? verifyImap;
 	const open = options.open ?? openInBrowser;
-	const start = options.start ?? startService;
 
 	const already = readConfigFile(path);
 	ui.notify(
 		already.accounts?.length
-			? `Mail is configured for: ${already.accounts.map((one) => one.name).join(", ")}. ${serviceStatusText()}`
+			? `Mail is configured for: ${already.accounts.map((one) => one.name).join(", ")}. Amp fetches it while it runs.`
 			: "Mail is not configured yet. A new address for the agent takes a minute; a mailbox of your own, a few.",
 		"info",
 	);
@@ -113,7 +110,7 @@ export async function runSetup(ui: SetupUi, options: SetupOptions = {}): Promise
 		return;
 	}
 	if (kind === AGENTMAIL) {
-		await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify, start);
+		await giveItAnAddress(ui, already, path, options.signUp ?? signUpAgentMail, verify);
 		return;
 	}
 
@@ -183,26 +180,13 @@ export async function runSetup(ui: SetupUi, options: SetupOptions = {}): Promise
 	};
 	saveAccount(account, path);
 
-	await offerService(ui, start, path);
-
 	ui.notify(
 		[
 			`Done. Mail sent to ${address} is now fetched into the spool as account "${account.name}".`,
-			`Ask someone to cc ${address}, or forward it a message, then run /email.watch in Amp.`,
+			`Amp fetches it while it runs, and catches up on anything that arrived while it was off.`,
 		].join("\n"),
 		"info",
 	);
-}
-
-async function offerService(ui: SetupUi, start: typeof startService, path: string): Promise<void> {
-	const background = await ui.confirm(
-		"Keep it running in the background?",
-		"It will fetch mail whether or not an Amp session is open. Nothing wakes an agent until /email.watch is run.",
-	);
-	if (!background) return;
-	const state = start();
-	saveServiceSetting(true, path);
-	ui.notify(`The service is ${state.alive ? `running as pid ${state.pid}` : "not running — check the log"}. ${serviceStatusText()}`, state.alive ? "info" : "error");
 }
 
 /**
@@ -216,7 +200,6 @@ async function giveItAnAddress(
 	path: string,
 	signUp: typeof signUpAgentMail,
 	verify: typeof verifyImap,
-	start: typeof startService,
 ): Promise<void> {
 	const existing = already.accounts?.find((one) => one.host === AGENTMAIL_IMAP && (one.folder ?? "INBOX") === "INBOX");
 	if (existing && !(await ui.confirm(`This machine already has an address: ${existing.user}`, "Creating another makes a second, separate inbox. Continue?"))) {
@@ -270,17 +253,15 @@ async function giveItAnAddress(
 		await verify({ host: AGENTMAIL_IMAP, user: inbox.inboxId, password: inbox.apiKey, mailbox: "Spam" });
 		ui.notify("Signed in — the inbox and its Spam folder both answer.", "info");
 	} catch (error) {
-		// Already written on purpose; the fetcher retries on every pass.
-		ui.notify(`Saved, but the first login check failed: ${(error as Error).message}. The fetcher tries again on every pass; /email.service shows the last thing it said.`, "warning");
+		// Already written on purpose; the next poll retries.
+		ui.notify(`Saved, but the first login check failed: ${(error as Error).message}. Amp retries on every poll.`, "warning");
 	}
-
-	await offerService(ui, start, path);
 
 	ui.notify(
 		[
 			`Done. The agent's address is ${inbox.inboxId}, fetched as "${name}" and "${name}-spam".`,
 			`Its key is the password in ${path} — to make it recoverable, claim the inbox at ${AGENTMAIL_CLAIM}. That also lets it send, so only if you want that.`,
-			`Ask someone to cc ${inbox.inboxId}, or forward it a message, then run /email.watch in Amp.`,
+			`Amp fetches it while it runs, and catches up on anything that arrived while it was off.`,
 		].join("\n"),
 		"info",
 	);

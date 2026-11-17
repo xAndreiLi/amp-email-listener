@@ -1,38 +1,28 @@
 /**
- * Publish-shape check: pack the tarball, install it into a throwaway project that has no Amp host,
- * and run the installed fetcher over a fixture mailbox.
+ * Single-file install check: copy the built plugin into a directory with no node_modules, load it
+ * with Bun, and drive a fixture mailbox through a stub Amp host.
  *
- * A checkout test cannot see this shape. Only an installed copy sits under node_modules, where
- * Node refuses to strip TypeScript and Amp's packages are not resolvable — the two things that once
- * stopped an npm-installed fetcher from starting. Run it before a tag publishes:
+ * A checkout test cannot see this shape. The installed artifact is one file, so a missing import or
+ * a dependency left external only shows up when that file runs alone. Run it before a tag publishes:
  *
+ *   npm run build
  *   npm run install-check
  */
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
+const BUN = process.platform === "win32" ? "bun.exe" : "bun";
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
+const bundle = join(repo, "dist", "amp-email-listener.js");
 const root = mkdtempSync(join(tmpdir(), "amp-email-listener-install-"));
-const packageName = (JSON.parse(readFileSync(join(repo, "package.json"), "utf8")) as { name: string }).name;
 
 let failures = 0;
 function check(what: string, ok: boolean): void {
 	console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
 	if (!ok) failures++;
-}
-
-/** npm is npm.cmd on Windows, which Node only spawns through a shell. */
-function npm(args: string[], cwd: string): string {
-	return execFileSync(NPM, args, {
-		cwd,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		...(process.platform === "win32" ? { shell: true } : {}),
-	});
 }
 
 const fixture = [
@@ -46,61 +36,90 @@ const fixture = [
 	"",
 ].join("\r\n");
 
+const driver = `
+const commands = [];
+const threads = new Map();
+const messages = [];
+let active = null;
+let created = 0;
+function makeThread(id) {
+	const thread = {
+		id,
+		appendUserMessage: async (message) => { messages.push(message.content); },
+	};
+	threads.set(id, thread);
+	return thread;
+}
+const amp = {
+	logger: { log: () => {} },
+	registerCommand: (id) => { commands.push(id); return { unsubscribe() {}, setAvailability() {} }; },
+	on: () => ({ unsubscribe() {} }),
+	onDispose: () => ({ unsubscribe() {} }),
+	activeThread: { get current() { return active; } },
+	threads: {
+		get: (id) => {
+			const thread = threads.get(id);
+			if (!thread) throw new Error("no thread " + id);
+			return thread;
+		},
+	},
+	getBuiltinAgent: () => ({
+		createThread: async () => {
+			created++;
+			const thread = makeThread("T-" + created);
+			active = { id: thread.id };
+			return thread;
+		},
+	}),
+};
+const plugin = (await import(new URL("./amp-email-listener.js", import.meta.url).href)).default;
+plugin(amp);
+await new Promise((resolve) => setTimeout(resolve, 500));
+console.log(JSON.stringify({ commands: commands.length, created, messages }));
+process.exit(0);
+`;
+
 try {
-	// Pack from a directory of its own, so the tarball's name is the only thing npm prints.
-	const packDir = join(root, "pack");
-	mkdirSync(packDir);
-	const tarball = npm(["pack", repo, "--silent"], packDir).trim().split(/\r?\n/).at(-1) ?? "";
-	check("npm pack writes a tarball", tarball.endsWith(".tgz") && existsSync(join(packDir, tarball)));
+	if (!existsSync(bundle)) {
+		console.error("FAIL dist/amp-email-listener.js is missing — run `npm run build` first");
+		process.exit(1);
+	}
 
-	// A throwaway project with no Amp host installed: the plugin's type package stays unresolved,
-	// exactly as for a user who installed the package but did not clone the plugin repository.
-	const project = join(root, "project");
-	mkdirSync(project);
-	writeFileSync(join(project, "package.json"), `${JSON.stringify({ name: "install-check", private: true }, null, "\t")}\n`);
-	copyFileSync(join(packDir, tarball), join(project, "package.tgz"));
-	npm(["install", "--legacy-peer-deps", "--no-audit", "--no-fund", "--silent", "./package.tgz"], project);
+	// The installed shape: the plugin file alone, no node_modules, no package.json.
+	const isolated = join(root, "plugin");
+	mkdirSync(isolated);
+	copyFileSync(bundle, join(isolated, "amp-email-listener.js"));
+	writeFileSync(join(isolated, "driver.mjs"), driver);
 
-	const installed = join(project, "node_modules", packageName);
-	check("the tarball installs without Amp's packages present", existsSync(join(installed, "src", "daemon.mjs")));
-	check("the Amp plugin entry is published", existsSync(join(installed, "index.ts")));
-	check("and without @ampcode/plugin resolvable from it", !existsSync(join(project, "node_modules", "@ampcode")));
-
-	const maildir = join(root, "fixtures");
-	mkdirSync(maildir);
-	writeFileSync(join(maildir, "install-check.eml"), fixture);
+	const fixtures = join(root, "fixtures");
+	mkdirSync(fixtures);
+	writeFileSync(join(fixtures, "install-check.eml"), fixture);
 
 	const config = join(root, "amp-email-listener.json");
 	writeFileSync(
 		config,
-		`${JSON.stringify(
-			{ accounts: [{ name: "agent", provider: "fixture", dir: maildir }], pollSeconds: 30 },
-			null,
-			"\t",
-		)}\n`,
+		`${JSON.stringify({ accounts: [{ name: "agent", provider: "fixture", dir: fixtures }], pollSeconds: 5 }, null, "\t")}\n`,
 	);
-	const mail = join(root, "mail");
-	const env = { ...process.env, AMP_EMAIL_LISTENER_CONFIG: config, AMP_EMAIL_LISTENER_MAIL_DIR: mail };
-	const run = () =>
-		execFileSync(process.execPath, [join("node_modules", packageName, "src", "daemon.mjs"), "--once"], {
-			cwd: project,
-			env,
-			encoding: "utf8",
-		});
-	run();
-
-	const index = join(mail, "agent", "index.jsonl");
-	const lines = () => (existsSync(index) ? readFileSync(index, "utf8").split("\n").filter(Boolean) : []);
-	const stored = lines().map((line) => JSON.parse(line) as { file: string; subject: string });
-	check("the installed fetcher runs from under node_modules", stored.length === 1);
-	check("and stores the fixture message", stored[0]?.subject === "Install check");
-	check(
-		"with the raw message kept whole",
-		stored[0] !== undefined && readFileSync(join(mail, "agent", stored[0].file), "utf8") === fixture,
-	);
-
-	run();
-	check("a second pass stores nothing", lines().length === 1);
+	const output = execFileSync(BUN, ["driver.mjs"], {
+		cwd: isolated,
+		encoding: "utf8",
+		env: {
+			...process.env,
+			AMP_EMAIL_LISTENER_CONFIG: config,
+			AMP_EMAIL_LISTENER_MAIL_DIR: join(root, "mail"),
+			AMP_EMAIL_LISTENER_POLL_MS: "20",
+		},
+	});
+	const result = JSON.parse(output.trim().split(/\r?\n/).at(-1) ?? "{}") as {
+		commands?: number;
+		created?: number;
+		messages?: string[];
+	};
+	const messages = result.messages ?? [];
+	check("the single file loads with no node_modules", (result.commands ?? 0) >= 2);
+	check("the first pass fetches the fixture", result.created === 1);
+	check("and appends the pointer", messages.length === 1 && messages[0].includes("Install check"));
+	check("the pointer does not carry the body", !messages[0]?.includes("Body of the message"));
 } catch (error) {
 	failures++;
 	const failure = error as { message?: string; stdout?: string; stderr?: string };

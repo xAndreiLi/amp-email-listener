@@ -34,14 +34,11 @@ export interface AccountConfig {
 export interface Config {
 	accounts: AccountConfig[];
 	pollSeconds: number;
-	/** Whether a session should make sure the detached fetcher is running when it starts. */
-	service?: { autoStart?: boolean };
 }
 
 /**
- * Amp's config directory, worked out without importing the plugin host: the detached fetcher runs
- * in plain Node, where Amp's packages are not installed. Amp uses `$XDG_CONFIG_HOME/amp` when that
- * variable is set, and `~/.config/amp` otherwise (including on Windows).
+ * Amp's config directory. Amp uses `$XDG_CONFIG_HOME/amp` when that variable is set, and
+ * `~/.config/amp` otherwise (including on Windows).
  */
 export function ampDir(): string {
 	const xdg = process.env.XDG_CONFIG_HOME;
@@ -65,7 +62,7 @@ export function loadConfig(path = configPath()): Config {
 			throw new Error(`every account in ${path} needs a "name" and a "provider"`);
 		}
 	}
-	return { accounts: parsed.accounts, pollSeconds: parsed.pollSeconds ?? 30, service: parsed.service };
+	return { accounts: parsed.accounts, pollSeconds: parsed.pollSeconds ?? 30 };
 }
 
 /** The file as written, or nothing when there is not one yet — never throws. */
@@ -92,10 +89,4 @@ export function saveAccount(account: AccountConfig, path = configPath()): Config
 	} as Config;
 	writeFileSync(path, `${JSON.stringify(next, null, "\t")}\n`);
 	return next;
-}
-
-/** Remember whether a session should keep the detached fetcher running. */
-export function saveServiceSetting(autoStart: boolean, path = configPath()): void {
-	const existing = readConfigFile(path);
-	writeFileSync(path, `${JSON.stringify({ ...existing, service: { ...existing.service, autoStart } }, null, "\t")}\n`);
 }

@@ -1,8 +1,8 @@
 # amp-email-listener — design (pi-era)
 
-> **Historical.** This design was written for the pi extension. The package is now an Amp directory
-> plugin (`index.ts`) and the wake uses Amp threads. The fetcher, spool, pointer and provider design
-> below still apply; the pi API names and command spellings do not.
+> **Historical.** This design was written for the pi extension. The package is now a single-file Amp
+> plugin built from `index.ts`, and the wake uses Amp threads. The fetcher, spool, pointer and
+> provider design below still apply; the pi API names and command spellings do not.
 
 Status: **design agreed 2026-10-09; the first milestone is built.** Decisions were taken with Andrei
 on 2026-10-09 and are recorded in his wiki as

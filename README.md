@@ -1,26 +1,37 @@
 # amp-email-listener
 
-Give your Amp agent an email address of its own. When mail arrives, the plugin appends a pointer to
-the message to a thread, which wakes the agent.
+A single-file Amp plugin that gives your agent an email address of its own. When mail arrives, it
+appends a pointer to the message to a thread, which wakes the agent.
 
 ## Install
 
-Requires [Amp](https://ampcode.com) and Node 22 or newer.
+Requires an Amp CLI with plugin support (`amp update` if `amp plugins` is unknown).
 
-Amp loads directory plugins from `.amp/plugins/` in a project, or from
-`~/.config/amp/plugins/` for every project (on Windows, `%USERPROFILE%\.config\amp\plugins\`). Clone
-this repository into one of those:
+The plugin is one file. Put it where Amp looks for project plugins:
 
 ```bash
-mkdir -p ~/.config/amp/plugins
-git clone https://github.com/xAndreiLi/amp-email-listener.git ~/.config/amp/plugins/amp-email-listener
-cd ~/.config/amp/plugins/amp-email-listener
-npm install
+mkdir -p .amp/plugins && curl -fsSL https://raw.githubusercontent.com/xAndreiLi/amp-email-listener/main/dist/amp-email-listener.js -o .amp/plugins/amp-email-listener.ts
 ```
 
-Then reload plugins in Amp: run `plugins: reload` from the command palette.
+On Windows PowerShell:
 
-For a single project, `mkdir -p .amp/plugins` and clone it there instead.
+```powershell
+New-Item -ItemType Directory -Force .amp\plugins | Out-Null
+Invoke-WebRequest https://raw.githubusercontent.com/xAndreiLi/amp-email-listener/main/dist/amp-email-listener.js -OutFile .amp\plugins\amp-email-listener.ts
+```
+
+For every project on the machine, use `~/.config/amp/plugins/` instead (on Windows,
+`$HOME\.config\amp\plugins\`). No `npm install` and no background process are needed.
+
+`amp plugins add` only accepts plugins from Amp's gallery (`https://ampcode.com/@amp/plugins/*.ts`),
+not an arbitrary GitHub URL. To make the plugin available everywhere and share it, add the same file
+to your personal plugin repository:
+
+```bash
+amp plugins repositories
+amp clone user-plugins
+# copy amp-email-listener.js to user-plugins/amp-email-listener.ts, then commit and push
+```
 
 ## Use
 
@@ -30,9 +41,8 @@ For a single project, `mkdir -p .amp/plugins` and clone it there instead.
 
 2. Ask someone to cc the agent, or forward it a message.
 
-3. Run `/email.watch` (or pick **Email: Watch mail (toggle)** from the command palette) in the
-   thread that should be woken. Every new message wakes the agent; run it again to stop. Mail that
-   arrived while watching was off is delivered when you start watching.
+3. The plugin starts fetching as soon as a mailbox is configured. `/email.watch` toggles it off and
+   on, and mail that arrived while Amp was off is fetched on the next start.
 
 ## Commands
 
@@ -40,16 +50,10 @@ For a single project, `mkdir -p .amp/plugins` and clone it there instead.
 |---|---|
 | `/email.setup` | Connect a mailbox |
 | `/email.watch` | Start or stop watching mail |
-| `/email.service` | Show the background fetcher and its last line |
-| `/email.service.start` | Start the background fetcher |
-| `/email.service.stop` | Stop the background fetcher |
-| `/email.service.restart` | Restart the background fetcher |
 
-The background fetcher is a detached Node process, so mail keeps arriving when Amp is closed.
-`/email.setup` offers to keep it running automatically. The plugin wakes a thread only while Amp is
-running and watching; mail that arrives otherwise is waiting when you start watching.
-
-The agent never sends mail. There is no send path.
+The plugin fetches mail while Amp is running. There is no always-on service: when Amp starts, the
+first pass reads each mailbox from its saved cursor, so missed mail is fetched and wakes the agent
+then. The agent never sends mail.
 
 ## Configuration
 
@@ -61,8 +65,11 @@ add accounts or change settings; mail is never marked read, moved, or deleted.
 ## Remove
 
 ```bash
-rm -rf ~/.config/amp/plugins/amp-email-listener
+rm .amp/plugins/amp-email-listener.ts
 ```
+
+Use `~/.config/amp/plugins/amp-email-listener.ts` for a machine-wide install, or remove the file
+from your personal plugin repository.
 
 ## Licence
 

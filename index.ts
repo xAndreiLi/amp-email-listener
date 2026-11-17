@@ -1,25 +1,24 @@
 /**
- * amp-email-listener — the wake half, as an Amp directory plugin.
+ * amp-email-listener — a single-file Amp plugin.
  *
- * The detached Node fetcher fills the spool whether or not Amp is open. This plugin watches that
- * spool and, for each new message, appends the pointer to a thread, which starts a turn. Nothing
- * wakes an agent until /email.watch is run.
+ * It fetches the configured mailboxes while Amp runs and appends a pointer to each new message to a
+ * thread, which starts a turn. The provider cursor is the backlog: when Amp starts after being off,
+ * the first pass fetches everything that arrived since the last pass.
  *
  * Every message wakes the agent — there is no gate. A message carrying a link or an attachment
- * blocks shell, edit and write tools for that thread until the turn ends, so the agent can report a
- * stranger's message but cannot act on it unattended.
+ * blocks shell, edit and write tools for that thread until the turn ends.
  */
 
 import type { PluginAPI, PluginCommandContext, PluginThread, ThreadID } from "@ampcode/plugin";
-import { loadConfig, readConfigFile } from "./src/config.ts";
-import { serviceState, serviceStatusText, startService, stopService } from "./src/service.ts";
+import { type AccountConfig, type Config, loadConfig } from "./src/config.ts";
+import { sourceFor, syncAccount } from "./src/fetcher.ts";
+import type { MailSource } from "./src/source.ts";
 import { markDelivered, needsCare, pointer, readRaw, undelivered } from "./src/wake.ts";
 
 export const description = "Watch a mailbox and wake an Amp agent when a message arrives.";
 
 /** Tools a turn triggered by a stranger's mail must not reach for. */
 const GATED_TOOLS = new Set(["shell_command", "bash", "edit_file", "create_file", "apply_patch"]);
-const POLL_MS = Number(process.env.AMP_EMAIL_LISTENER_POLL_MS ?? 10_000);
 
 export default function (amp: PluginAPI) {
 	let timer: ReturnType<typeof setInterval> | undefined;
@@ -29,6 +28,8 @@ export default function (amp: PluginAPI) {
 	let watchThreadId: ThreadID | undefined;
 	/** The thread mail is appended to when no watch or active thread exists. */
 	let mailThreadId: ThreadID | undefined;
+	/** One provider connection per account, reused across polls. */
+	const sources = new Map<string, MailSource>();
 	/** Malicious messages appended to a thread but not yet started as a turn. */
 	const queuedCare = new Map<ThreadID, Set<string>>();
 	/** Threads whose current turn came from a message carrying a link or an attachment. */
@@ -36,26 +37,37 @@ export default function (amp: PluginAPI) {
 
 	const log = (message: string) => amp.logger.log(message);
 
-	function stop(): void {
+	async function stop(): Promise<void> {
 		if (timer) clearInterval(timer);
 		timer = undefined;
 		watchThreadId = undefined;
 		queuedCare.clear();
 		activeCare.clear();
+		for (const source of sources.values()) {
+			try {
+				await source.close?.();
+			} catch {
+				// A connection that is already gone needs no further cleanup.
+			}
+		}
+		sources.clear();
 	}
 
-	/** Remember a malicious message until its own turn starts, not until an earlier turn ends. */
-	function queueCare(threadId: ThreadID, text: string): void {
-		const queued = queuedCare.get(threadId) ?? new Set<string>();
-		queued.add(text);
-		queuedCare.set(threadId, queued);
-	}
-
-	function unqueueCare(threadId: ThreadID, text: string): void {
-		const queued = queuedCare.get(threadId);
-		if (!queued) return;
-		queued.delete(text);
-		if (queued.size === 0) queuedCare.delete(threadId);
+	/** Reuse an account's connection; a broken one is dropped and recreated on the next poll. */
+	function sourceForAccount(account: AccountConfig): MailSource | undefined {
+		const existing = sources.get(account.name);
+		if (existing) return existing;
+		try {
+			const source = sourceFor(account);
+			sources.set(account.name, source);
+			return source;
+		} catch (error) {
+			if (!complained) {
+				complained = true;
+				log(`[${account.name}] ${(error as Error).message}`);
+			}
+			return undefined;
+		}
 	}
 
 	/** Append the pointer to the thread the user chose, the one they are looking at, or a mail thread. */
@@ -100,12 +112,38 @@ export default function (amp: PluginAPI) {
 		return await append(thread);
 	}
 
+	/** Remember a malicious message until its own turn starts, not until an earlier turn ends. */
+	function queueCare(threadId: ThreadID, text: string): void {
+		const queued = queuedCare.get(threadId) ?? new Set<string>();
+		queued.add(text);
+		queuedCare.set(threadId, queued);
+	}
+
+	function unqueueCare(threadId: ThreadID, text: string): void {
+		const queued = queuedCare.get(threadId);
+		if (!queued) return;
+		queued.delete(text);
+		if (queued.size === 0) queuedCare.delete(threadId);
+	}
+
 	async function tick(): Promise<void> {
 		if (busy) return;
 		busy = true;
 		try {
-			const accounts = loadConfig().accounts;
-			for (const account of accounts) {
+			const config = loadConfig();
+			for (const account of config.accounts) {
+				const source = sourceForAccount(account);
+				if (!source) continue;
+				try {
+					// The cursor lives with the spool, so the first pass after Amp was off fetches the
+					// whole backlog rather than only what arrives from now on.
+					await syncAccount(account, source, log);
+				} catch (error) {
+					if (!complained) {
+						complained = true;
+						log(`[${account.name}] ${(error as Error).message}`);
+					}
+				}
 				for (const pending of undelivered(account.name)) {
 					let text: string;
 					let raw: string;
@@ -140,30 +178,25 @@ export default function (amp: PluginAPI) {
 		}
 	}
 
-	async function start(ctx: PluginCommandContext): Promise<void> {
+	async function start(notify?: (message: string) => void, threadId?: ThreadID): Promise<void> {
+		if (timer) return;
+		let config: Config;
 		try {
-			loadConfig();
+			config = loadConfig();
 		} catch (error) {
-			await ctx.ui.notify((error as Error).message);
+			const message = (error as Error).message;
+			notify?.(message);
+			log(message);
 			return;
 		}
 		complained = false;
-		watchThreadId = ctx.thread?.id;
-		timer = setInterval(() => void tick(), POLL_MS);
-		await ctx.ui.notify(`Watching mail every ${Math.round(POLL_MS / 1000)}s.`);
+		watchThreadId = threadId;
+		const pollMs = Number(process.env.AMP_EMAIL_LISTENER_POLL_MS ?? config.pollSeconds * 1000);
+		timer = setInterval(() => void tick(), pollMs);
+		const message = `Watching mail every ${Math.round(pollMs / 1000)}s.`;
+		notify?.(message);
+		log(message);
 		void tick();
-	}
-
-	// A mailbox configured to be always on: make sure the detached fetcher is there. A bad config
-	// must not break the plugin.
-	try {
-		const wanted = readConfigFile().service?.autoStart ? loadConfig().accounts.length > 0 : false;
-		if (wanted && !serviceState().alive) {
-			const started = startService();
-			log(started.alive ? `Mail service started (pid ${started.pid}).` : "The mail service did not start.");
-		}
-	} catch {
-		// Nothing configured yet; /email.setup will say so.
 	}
 
 	amp.on("tool.call", (event) => {
@@ -193,7 +226,9 @@ export default function (amp: PluginAPI) {
 		activeCare.delete(event.thread.id);
 	});
 
-	amp.onDispose(() => stop());
+	amp.onDispose(async () => {
+		await stop();
+	});
 
 	amp.registerCommand(
 		"email.watch",
@@ -203,12 +238,13 @@ export default function (amp: PluginAPI) {
 			description: "Start or stop waking this Amp agent for new mail.",
 		},
 		async (ctx) => {
+			const notify = (message: string) => void ctx.ui.notify(message);
 			if (timer) {
-				stop();
-				await ctx.ui.notify("Stopped watching mail.");
+				await stop();
+				notify("Stopped watching mail.");
 				return;
 			}
-			await start(ctx);
+			await start(notify, ctx.thread?.id);
 		},
 	);
 
@@ -221,64 +257,27 @@ export default function (amp: PluginAPI) {
 		},
 		async (ctx) => {
 			const { runSetup } = await import("./src/setup.ts");
+			const notify = (message: string) => void ctx.ui.notify(message);
 			await runSetup({
-				notify: (message) => void ctx.ui.notify(message),
+				notify,
 				input: (title, placeholder) => ctx.ui.input({ title, placeholder }),
 				confirm: (title, message) => ctx.ui.confirm({ title, message }),
 				select: (title, options) => ctx.ui.select({ title, options }),
 			});
+			try {
+				loadConfig();
+			} catch {
+				return;
+			}
+			await start(notify, ctx.thread?.id);
 		},
 	);
 
-	amp.registerCommand(
-		"email.service",
-		{
-			title: "Service status",
-			category: "Email",
-			description: "Show the background fetcher and the last thing it said.",
-		},
-		async (ctx) => {
-			await ctx.ui.notify(serviceStatusText());
-		},
-	);
-
-	amp.registerCommand(
-		"email.service.start",
-		{
-			title: "Start service",
-			category: "Email",
-			description: "Start the background fetcher if it is not running.",
-		},
-		async (ctx) => {
-			startService();
-			await ctx.ui.notify(serviceStatusText());
-		},
-	);
-
-	amp.registerCommand(
-		"email.service.stop",
-		{
-			title: "Stop service",
-			category: "Email",
-			description: "Stop the background fetcher.",
-		},
-		async (ctx) => {
-			stopService();
-			await ctx.ui.notify("Mail service stopped.");
-		},
-	);
-
-	amp.registerCommand(
-		"email.service.restart",
-		{
-			title: "Restart service",
-			category: "Email",
-			description: "Stop and start the background fetcher.",
-		},
-		async (ctx) => {
-			stopService();
-			startService();
-			await ctx.ui.notify(serviceStatusText());
-		},
-	);
+	// A configured mailbox starts fetching as soon as the plugin loads, which is what makes the first
+	// pass after Amp was off fetch the backlog.
+	try {
+		if (loadConfig().accounts.length > 0) void start();
+	} catch {
+		// Nothing configured yet; /email.setup will say so.
+	}
 }

@@ -51,7 +51,7 @@ interface CursorShape {
 
 /**
  * Does this login actually work? Used by the setup wizard, which should fail in front of the person
- * typing rather than the first time the service runs.
+ * typing rather than the first time the plugin polls.
  */
 export async function verifyImap(options: ImapOptions): Promise<{ messages: number }> {
 	const source = imapSource("verify", options);

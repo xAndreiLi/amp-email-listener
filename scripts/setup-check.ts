@@ -68,10 +68,9 @@ const path = join(dir, "amp-email-listener.json");
 const happy = stubUi({
 	select: GMAIL,
 	inputs: ["agent@gmail.com", "abcd efgh ijkl mnop"],
-	confirms: [true, true],
+	confirms: [true],
 });
 let verified: Record<string, unknown> | undefined;
-let started = 0;
 await runSetup(happy.ui, {
 	path,
 	open: (url) => happy.opened.push(url),
@@ -79,22 +78,16 @@ await runSetup(happy.ui, {
 		verified = options;
 		return { messages: 3 };
 	},
-	start: () => {
-		started++;
-		return { pid: 4321, alive: true, logPath: "log" };
-	},
 });
 
 check("it asks what kind of mailbox before anything else", happy.asked[0]?.startsWith("select:") === true);
 check("a Gmail setup offers the signup and app-password pages", happy.opened.some((url) => url.includes("signup")) && happy.opened.some((url) => url.includes("apppasswords")));
 check("it verifies the login before writing anything", verified?.host === "imap.gmail.com" && verified?.user === "agent@gmail.com");
-check("it starts the service when asked", started === 1);
 
-const written = JSON.parse(readFileSync(path, "utf8")) as { accounts: { name: string; provider: string; password: string }[]; service?: { autoStart?: boolean } };
+const written = JSON.parse(readFileSync(path, "utf8")) as { accounts: { name: string; provider: string; password: string }[] };
 check("the account is written with the provider that needs no registration", written.accounts[0]?.provider === "imap" && written.accounts[0]?.name === "agent");
-check("the app password is stored so the service can use it", written.accounts[0]?.password === "abcd efgh ijkl mnop");
-check("and the service is remembered as always on", written.service?.autoStart === true);
-check("the last thing it says is what to cc", happy.notices.at(-1)?.includes("agent@gmail.com") === true);
+check("the app password is stored so the plugin can use it", written.accounts[0]?.password === "abcd efgh ijkl mnop");
+check("the last thing it says names the address", happy.notices.at(-1)?.includes("agent@gmail.com") === true);
 
 // ---------------------------------------------------------------- a bad password writes nothing
 
@@ -106,7 +99,6 @@ await runSetup(bad.ui, {
 	verify: async () => {
 		throw new Error("Invalid credentials");
 	},
-	start: () => ({ pid: 1, alive: true, logPath: "log" }),
 });
 check("a failed login writes no config at all", !existsSync(badPath));
 check("and the person is told what usually causes it", bad.notices.some((line) => line.includes("2-Step Verification")));
@@ -131,12 +123,11 @@ writeFileSync(
 );
 const merge = stubUi({ select: GMAIL, inputs: ["agent@gmail.com", "pw"], confirms: [false, false] });
 await runSetup(merge.ui, { path: mergePath, open: () => {}, verify: async () => ({ messages: 0 }) });
-const merged = JSON.parse(readFileSync(mergePath, "utf8")) as { accounts: { name: string }[]; pollSeconds: number; somethingNewer?: unknown; service?: unknown };
+const merged = JSON.parse(readFileSync(mergePath, "utf8")) as { accounts: { name: string }[]; pollSeconds: number; somethingNewer?: unknown };
 check("another account is left alone", merged.accounts.some((one) => one.name === "work"));
 check("the new one is added", merged.accounts.some((one) => one.name === "agent"));
 check("settings this version does not know about survive", merged.somethingNewer !== undefined);
 check("so does the poll interval", merged.pollSeconds === 45);
-check("and no service setting is invented when it was declined", merged.service === undefined);
 
 // ---------------------------------------------------------------- a mailbox somebody already has
 
@@ -174,7 +165,6 @@ const checked: { mailbox?: unknown; writtenFirst: boolean }[] = [];
 await runSetup(am.ui, {
 	path: amPath,
 	open: () => {},
-	start: () => ({ pid: 1, alive: true, logPath: "log" }),
 	signUp: async (username: string) => {
 		tried.push(username);
 		if (username === "taken") throw new Error("Username is already taken");
@@ -194,7 +184,7 @@ check("its Spam folder is watched as well", amAccounts.some((one) => one.name ==
 check("the key is stored as the password of both", amAccounts.length === 2 && amAccounts.every((one) => one.password === KEY));
 check("both folders are checked, and only once the key is safely written", checked.length === 2 && checked[1]?.mailbox === "Spam" && checked.every((one) => one.writtenFirst));
 check("the key never appears in anything said on screen", am.notices.every((line) => !line.includes(KEY)));
-check("the last thing it says is the address to cc", am.notices.at(-1)?.includes("pm-assistant@agentmail.to") === true);
+check("the last thing it says names the address", am.notices.at(-1)?.includes("pm-assistant@agentmail.to") === true);
 
 const keptPath = join(root, "kept.json");
 const kept = stubUi({ select: AGENTMAIL, inputs: ["fresh"], confirms: [false] });

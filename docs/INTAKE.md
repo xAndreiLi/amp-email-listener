@@ -20,16 +20,16 @@ They are not equally easy to satisfy, and §5 shows where they fight each other.
 | Piece | State | What proves it |
 |---|---|---|
 | Spool: raw `.eml` + append-only index + per-account cursor, under `<Amp config dir>/mail/<account>/` | Built | 17 checks, and real files on disk from live runs |
-| Fetcher: one pass per account, dedup, provider-owned cursor, one broken account does not stop others | Built | Runs from a plain node process with no agent host (verified) |
+| Fetcher: one pass per account, dedup, provider-owned cursor, one broken account does not stop others | Built | The plugin calls it while Amp runs; the same pass is exercised offline |
 | **IMAP source** — a mailbox the agent owns | Built | 21 checks against a stubbed server, including a `uidValidity` rebuild and a dropped connection |
 | Graph source — read a Microsoft mailbox directly | Built | 12 checks against a stubbed Graph; **never run against Microsoft** (no tenant exists) |
 | Microsoft sign-in (device code) | Built | 16 checks against a stubbed identity platform; reached the live endpoint once, with a placeholder client id |
-| Wake: every message wakes the agent, pointer not digest, quarantine on links and attachments | Built | 35 checks against a stub Amp host, and the same harness under Bun; a real Amp session is still to prove |
-| `/email.watch` (toggle), `/email.service` + `.start`/`.stop`/`.restart`, `/email.setup` (wizard) | Built | 18 checks on the wizard conversation, 10 on a real detached service process |
-| Detached always-on service | Built | Started, fetched, logged, stopped — one process only |
+| Wake: every message wakes the agent, pointer not digest, quarantine on links and attachments | Built | 23 checks against a stub Amp host, and the same harness under Bun; a real Amp session is still to prove |
+| `/email.watch` (toggle), `/email.setup` (wizard) | Built | 23 checks on the stub host and the wizard conversation |
+| Backlog catch-up | Built | The first pass after the plugin loads fetches fixture mail that arrived while it was off |
 | **A real mailbox** | **Never done** | Everything above is either stubbed or fixture mail |
 
-**Seven offline suites, all green.** The missing step is the one thing no test can
+**Six offline suites, all green.** The missing step is the one thing no test can
 substitute for: a real address, a real password, a real message.
 
 ### The decisions that constrain everything downstream

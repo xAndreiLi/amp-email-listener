@@ -7,7 +7,7 @@
  *   <mail dir>/<account>/<file>         the message exactly as it arrived
  *   <mail dir>/<account>/cursor.json    the source's sync position, opaque here
  *
- * Nothing here needs a session, so the fetcher runs with or without one.
+ * Nothing here needs a session; the plugin writes here while Amp runs.
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

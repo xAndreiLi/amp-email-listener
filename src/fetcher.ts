@@ -1,22 +1,17 @@
 /**
- * The fetcher: the always-on half of amp-email-listener.
- *
- * It owns the provider connection and the sync position, and its only output is spool files. It
- * needs no Amp session, and nothing downstream can tell whether one was open while it ran.
- *
- *   npm run fetch          poll forever
- *   npm run fetch:once     one pass per account, then exit
+ * The mail half: one pass per account into the spool. The plugin calls it while Amp runs, and the
+ * cursor is what makes the next start catch up on mail that arrived while Amp was off.
  */
 
 import { createHash } from "node:crypto";
-import { type AccountConfig, loadConfig } from "./config.ts";
+import type { AccountConfig } from "./config.ts";
 import { graphSource } from "./graph.ts";
 import { imapSource } from "./imap.ts";
 import { accessTokenFor } from "./microsoft-auth.ts";
 import { type MailSource, fixtureSource } from "./source.ts";
 import { accountDir, readCursor, readIndex, storeMessage, writeCursor } from "./spool.ts";
 
-const log = (line: string) => process.stdout.write(`${new Date().toISOString()} ${line}\n`);
+const defaultLog = (line: string) => process.stdout.write(`${new Date().toISOString()} ${line}\n`);
 
 export function sourceFor(account: AccountConfig): MailSource {
 	switch (account.provider) {
@@ -60,7 +55,11 @@ export function sourceFor(account: AccountConfig): MailSource {
 }
 
 /** One pass over an account: everything the cursor has not seen becomes a spool file. */
-export async function syncAccount(account: AccountConfig, source = sourceFor(account)): Promise<number> {
+export async function syncAccount(
+	account: AccountConfig,
+	source = sourceFor(account),
+	log = defaultLog,
+): Promise<number> {
 	accountDir(account.name);
 	const known = new Set(readIndex(account.name).map((message) => message.id));
 	const { envelopes, cursor } = await source.listNew(readCursor(account.name));
@@ -94,24 +93,3 @@ function safeName(id: string): string {
 	return `${cleaned.slice(0, 48)}-${createHash("sha1").update(id).digest("hex").slice(0, 8)}.eml`;
 }
 
-export async function run(argv = process.argv.slice(2)): Promise<void> {
-	const once = argv.includes("--once");
-	const config = loadConfig();
-	const accounts = config.accounts.map((account) => ({ account, source: sourceFor(account) }));
-	for (;;) {
-		for (const { account, source } of accounts) {
-			try {
-				const stored = await syncAccount(account, source);
-				if (stored === 0) log(`[${account.name}] nothing new`);
-			} catch (error) {
-				// One broken account must not stop the others; the next pass is the retry.
-				// shortcut: no backoff, so a dead account is retried once per poll interval.
-				log(`[${account.name}] ${(error as Error).message}`);
-			}
-		}
-		if (once) break;
-		await new Promise((resolve) => setTimeout(resolve, config.pollSeconds * 1000));
-	}
-	// A source may hold a connection open across passes; let it go on the way out.
-	for (const { source } of accounts) await source.close?.();
-}

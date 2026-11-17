@@ -1,56 +1,29 @@
 {
 	"name": "amp-email-listener",
-	"version": "0.1.0",
-	"description": "Watch a mailbox from Amp and wake an agent when mail arrives, handing over a pointer to the message rather than a summary.",
+	"version": "0.2.0",
+	"private": true,
+	"description": "A single-file Amp plugin that watches a mailbox and wakes an agent when mail arrives.",
 	"type": "module",
 	"license": "MIT",
 	"author": "xAndreiLi",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/xAndreiLi/amp-email-listener.git"
-	},
-	"homepage": "https://github.com/xAndreiLi/amp-email-listener#readme",
-	"bugs": {
-		"url": "https://github.com/xAndreiLi/amp-email-listener/issues"
-	},
 	"engines": {
 		"node": ">=22"
 	},
-	"files": [
-		"index.ts",
-		"src",
-		"README.md",
-		"LICENSE"
-	],
-	"keywords": [
-		"amp-plugin",
-		"amp",
-		"email",
-		"mailbox",
-		"imap",
-		"outlook",
-		"agent-wake"
-	],
 	"scripts": {
-		"fetch": "node src/daemon.mjs",
-		"fetch:once": "node src/daemon.mjs --once",
+		"build": "bun build index.ts --target=bun --outfile=dist/amp-email-listener.js",
 		"self-check": "jiti scripts/self-check.ts",
 		"load-check": "jiti scripts/load-check.ts",
 		"install-check": "jiti scripts/install-check.ts",
-		"test:all": "npm run self-check && npm run load-check && npm run graph-check && npm run auth-check && npm run imap-check && npm run setup-check && npm run service-check",
-		"prepublishOnly": "npm run test:all",
+		"test:all": "npm run self-check && npm run load-check && npm run graph-check && npm run auth-check && npm run imap-check && npm run setup-check",
 		"mail:auth": "jiti scripts/mail-auth.ts",
 		"graph-check": "jiti scripts/graph-check.ts",
 		"auth-check": "jiti scripts/auth-check.ts",
 		"imap-check": "jiti scripts/imap-check.ts",
-		"setup-check": "jiti scripts/setup-check.ts",
-		"service-check": "jiti scripts/service-check.ts"
+		"setup-check": "jiti scripts/setup-check.ts"
 	},
 	"devDependencies": {
 		"@ampcode/plugin": "0.0.0-20261117001159-g1339445",
-		"@types/node": "^22.19.19"
-	},
-	"dependencies": {
+		"@types/node": "^22.19.19",
 		"imapflow": "^2.3.0",
 		"jiti": "^2.7.0"
 	}
