@@ -136,3 +136,12 @@
 - Orphans: 0 · raw backlog: 0
 - Contradiction checks: 8 · duplicate candidates: 0
 
+## [2026-11-17] finalize | AgentMail setup now prompts to claim the inbox after creation; confirming opens the claim page, declining keeps the key path visible, and the setup checks cover claim, decline, failed verification and the rescue path.
+- Updated: architecture/agentmail-agent-inbox.md
+
+## [2026-11-17] lint | 0 added, 0 broken links, 43 unbacked claims
+- Pages: 10
+- TOC updated: 0 · missing files: 0
+- Orphans: 0 · raw backlog: 0
+- Contradiction checks: 8 · duplicate candidates: 0
+

@@ -2,7 +2,7 @@
 title: "An inbox the package can create itself: AgentMail's agent sign-up"
 type: architecture/layer
 topic: architecture
-summary: "AgentMail lets a program create an agent inbox with one unauthenticated POST — no human sign-up, card, domain, app password or OAuth — and the inbox is readable over IMAP with its API key as the password, so the existing imap source reads it unchanged (proven live 2026-10-09 with suruiling@agentmail.to; the original live sign-up). Email: Set up a mailbox (email.setup) offers it first: a name, and the agent has an address, with its Spam folder watched too. Without a human attached the inbox can receive but cannot send to anyone, which matches the no-send boundary. The price: a lost key cannot be recovered, a third party holds the mail, and inbound mail that fails authentication is dropped without a bounce. Arrival of a real message is still to be proven."
+summary: "AgentMail lets a program create an agent inbox with one unauthenticated POST — no human sign-up, card, domain, app password or OAuth — and the inbox is readable over IMAP with its API key as the password, so the existing imap source reads it unchanged (proven live 2026-10-09 with suruiling@agentmail.to; the original live sign-up). Email: Set up a mailbox (email.setup) offers it first: a name, and the agent has an address, with its Spam folder watched too. After setup it offers to open the claim page; claiming makes the key recoverable and unlocks sending. Without a human attached the inbox can receive but cannot send to anyone, which matches the no-send boundary. The price: a lost key cannot be recovered, a third party holds the mail, and inbound mail that fails authentication is dropped without a bounce. Arrival of a real message is still to be proven."
 tags: [architecture, intake, agentmail, imap, setup, rented-address]
 updated: 2026-11-17
 sources:
@@ -61,12 +61,12 @@ claims:
     reviewed: 2026-10-09
     last_checked: 2026-10-09
   - id: c6
-    text: "Email: Set up a mailbox (`email.setup`) now offers 'Give the agent its own address (instant, no sign-up)' first. It signs up at AgentMail with no human email, so the inbox is receive-only, and writes two imap accounts: `<name>` on INBOX and `<name>-spam` on Spam, both with the key as the password. Unlike the Gmail and IMAP routes, it writes before it verifies, because the key cannot be fetched again. If the config cannot be written, the key goes to `<config>.<name>.agentmail.json` and the user is told where, without the key being shown. It then checks both folders; a failed check keeps the accounts, since the plugin retries every pass. An existing AgentMail address is named, with a question, before a second is made, and a refused name is reported in AgentMail's own words before another is asked for."
+    text: "Email: Set up a mailbox (`email.setup`) now offers 'Give the agent its own address (instant, no sign-up)' first. It signs up at AgentMail with no human email, so the inbox is receive-only, and writes two imap accounts: `<name>` on INBOX and `<name>-spam` on Spam, both with the key as the password. Unlike the Gmail and IMAP routes, it writes before it verifies, because the key cannot be fetched again. If the config cannot be written, the key goes to `<config>.<name>.agentmail.json` and the user is told where, without the key being shown. It then checks both folders; a failed check keeps the accounts, since the plugin retries every pass. After the login check it asks whether to open AgentMail's claim page; claiming makes the key recoverable and unlocks sending, which the plugin never uses. An existing AgentMail address is named, with a question, before a second is made, and a refused name is reported in AgentMail's own words before another is asked for."
     status: verified
     support: 0.85
-    evidence: ["file: src/setup.ts — giveItAnAddress(): 'Unlike the other routes it writes before it verifies, because the key it hands back cannot be fetched again — a check that failed first would lose the inbox'; the spam account is `{ ...account, name: `${name}-spam`, folder: \"Spam\" }`; the rescue file is `${path}.${name}.agentmail.json`", "command: npm run setup-check → 'ok the new address is the first thing offered', 'ok a refused name is reported in AgentMail's words, and another is asked for', 'ok its Spam folder is watched as well', 'ok both folders are checked, and only once the key is safely written', 'ok the key never appears in anything said on screen', 'ok a failed first login keeps the account, because the key cannot be fetched again', 'ok a config that cannot be written does not lose the key', 'ok the sign-up sends the name and no human email, so the inbox is receive-only'"]
-    reviewed: 2026-10-09
-    last_checked: 2026-10-09
+    evidence: ["file: src/setup.ts — giveItAnAddress(): 'Unlike the other routes it writes before it verifies, because the key it hands back cannot be fetched again — a check that failed first would lose the inbox'; the spam account is `{ ...account, name: `${name}-spam`, folder: \"Spam\" }`; the rescue file is `${path}.${name}.agentmail.json`; promptToClaim() opens the claim page on confirmation", "command: npm run setup-check → 'ok the new address is the first thing offered', 'ok a refused name is reported in AgentMail's words, and another is asked for', 'ok its Spam folder is watched as well', 'ok both folders are checked, and only once the key is safely written', 'ok the claim prompt is offered after the inbox is created', 'ok confirming opens AgentMail's claim page', 'ok the claim notice keeps the key path visible', 'ok declining the claim points back to the key file', 'ok the key never appears in anything said on screen', 'ok a failed first login keeps the account, because the key cannot be fetched again', 'ok a config that cannot be written does not lose the key', 'ok the sign-up sends the name and no human email, so the inbox is receive-only'"]
+    reviewed: 2026-11-17
+    last_checked: 2026-11-17
   - id: c7
     text: "Andrei's machine as prepared for testing on 2026-10-09: the pi config held `suruiling` (INBOX) and `suruiling-spam` (Spam), the same key in both; the `outlook` Graph account and its empty spool folder were gone; both folders log in at imap.agentmail.to, where the spam folder is named `Spam`. The current Amp plugin reads `~/.config/amp/amp-email-listener.json`; there is no service setting, and it starts polling when it loads with a configured mailbox."
     status: verified
@@ -111,8 +111,10 @@ Email: Set up a mailbox → "Give the agent its own address" → a name → done
 ```
 
 The wizard signs up ([c1](#c1)), writes two ordinary `imap` accounts, checks the login, and starts
-the plugin watching ([c6](#c6)). The IMAP source, the spool and the wake are unchanged; the only new
-code is the sign-up call and the order of writing before checking.
+the plugin watching ([c6](#c6)). After the login check it asks whether to open AgentMail's claim
+page. Claiming makes the key recoverable and unlocks sending; the plugin never sends. The IMAP source,
+the spool and the wake are unchanged; the only new code is the sign-up call, the claim prompt, and
+the order of writing before checking.
 
 ## What it costs
 
