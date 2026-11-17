@@ -40,6 +40,7 @@
 		"fetch:once": "node src/daemon.mjs --once",
 		"self-check": "jiti scripts/self-check.ts",
 		"load-check": "jiti scripts/load-check.ts",
+		"install-check": "jiti scripts/install-check.ts",
 		"live": "node scripts/live-test.mjs",
 		"test:all": "npm run self-check && npm run load-check && npm run graph-check && npm run auth-check && npm run imap-check && npm run setup-check && npm run service-check",
 		"prepublishOnly": "npm run test:all",

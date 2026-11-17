@@ -21,3 +21,8 @@ jobs:
       # session and spends a model call, so it is run by hand.
       - name: Checks
         run: npm run test:all
+      # The checkout tested above is not the layout users get: only an installed package sits under
+      # node_modules, where Node will not strip types and pi is not resolvable. This packs the
+      # tarball, installs it into a throwaway project and drives that copy.
+      - name: Installed-copy check
+        run: npm run install-check
